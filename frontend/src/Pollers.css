@@ -1,0 +1,232 @@
+.pollers-container {
+    background-color: #161b22;
+    border-radius: 12px;
+    border: 1px solid #30363d;
+    overflow: hidden;
+    width: 100%;
+}
+
+.pollers-header {
+    padding: 20px;
+    border-bottom: 1px solid #30363d;
+}
+
+.header-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.header-top-row h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #e6edf3;
+    margin: 0;
+}
+
+.refresh-btn-small {
+    background-color: #21262d;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.refresh-btn-small:hover:not(:disabled) {
+    background-color: #30363d;
+    border-color: #8b949e;
+}
+
+/* Operational Metric Layout Matrices */
+.poller-stats-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.stat-summary-card {
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 16px;
+    cursor: pointer;
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    user-select: none;
+}
+
+.stat-summary-card:hover {
+    transform: translateY(-2px);
+    border-color: #8b949e;
+}
+
+.stat-summary-card.active-filter {
+    box-shadow: 0 0 0 2px #1f6feb;
+    border-color: #1f6feb;
+}
+
+.stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #8b949e;
+    margin-bottom: 4px;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #e6edf3;
+}
+
+/* Unique Left-Border Identity Accent Channels */
+.stat-summary-card.critical { border-left: 4px solid #f85149; }
+.stat-summary-card.warning { border-left: 4px solid #d29922; }
+.stat-summary-card.unknown { border-left: 4px solid #8b949e; }
+.stat-summary-card.total { border-left: 4px solid #1f6feb; }
+
+/* Control Panel Filtration Row */
+.search-pagination-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.search-input {
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    padding: 8px 12px;
+    font-size: 13px;
+    width: 260px;
+    height: 38px;
+    transition: all 0.2s;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #1f6feb;
+    box-shadow: 0 0 0 3px rgba(31,111,235,0.2);
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pagination-label {
+    font-size: 13px;
+    color: #8b949e;
+}
+
+.page-size-select {
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    padding: 0 8px;
+    height: 38px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.pagination-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.page-btn {
+    background-color: #21262d;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+    padding: 0 12px;
+    border-radius: 6px;
+    height: 38px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.page-btn:hover:not(:disabled) {
+    background-color: #30363d;
+    color: #ffffff;
+}
+
+.page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.page-info {
+    font-size: 13px;
+    color: #8b949e;
+    min-width: 80px;
+    text-align: center;
+}
+
+/* Core Infrastructure Data Matrix */
+.pollers-table-wrapper {
+    overflow-x: auto;
+}
+
+.pollers-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    text-align: left;
+}
+
+.pollers-table th {
+    padding: 12px 16px;
+    background-color: #0d1117;
+    color: #8b949e;
+    font-weight: 500;
+    border-bottom: 1px solid #30363d;
+}
+
+.pollers-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #21262d;
+    color: #e6edf3;
+}
+
+.pollers-table tr:hover td {
+    background-color: #21262d;
+}
+
+.poller-name-cell {
+    font-weight: 500;
+    color: #58a6ff !important;
+}
+
+/* Semantic Status Color Flags */
+.text-critical { color: #f85149; font-weight: 600; }
+.text-warning { color: #d29922; font-weight: 600; }
+.text-unknown { color: #8b949e; font-weight: 600; }
+.text-bold { font-weight: 600; }
+
+.loading-cell {
+    text-align: center;
+    padding: 40px !important;
+    color: #8b949e;
+    font-style: italic;
+}
+
+.table-count {
+    padding: 12px 20px;
+    border-top: 1px solid #30363d;
+    color: #8b949e;
+    font-size: 12px;
+    text-align: right;
+    background-color: #161b22;
+}

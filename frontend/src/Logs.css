@@ -1,0 +1,174 @@
+.logs-container {
+    background-color: #161b22;
+    border-radius: 12px;
+    border: 1px solid #30363d;
+    overflow: hidden;
+    margin-top: 0;
+    width: 100%;
+}
+
+.logs-header {
+    padding: 20px;
+    border-bottom: 1px solid #30363d;
+    background-color: #161b22;
+}
+
+.header-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.header-top-row h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #e6edf3;
+    margin: 0;
+}
+
+.last-update-badge {
+    background-color: #21262d;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: #8b949e;
+    border: 1px solid #30363d;
+}
+
+/* Horizontal Filters Panel Layout */
+.logs-filter-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.filter-group label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #8b949e;
+}
+
+.filter-input-small, 
+.filter-select-small, 
+.date-filter-input {
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    padding: 8px 12px;
+    font-size: 13px;
+    height: 38px;
+    transition: all 0.2s;
+}
+
+.filter-input-small {
+    width: 180px;
+}
+
+.filter-select-small {
+    width: 150px;
+    cursor: pointer;
+}
+
+.date-filter-input {
+    width: 140px;
+    cursor: text;
+}
+
+.filter-input-small:focus, 
+.filter-select-small:focus, 
+.date-filter-input:focus {
+    outline: none;
+    border-color: #1f6feb;
+    box-shadow: 0 0 0 3px rgba(31,111,235,0.2);
+}
+
+/* Interactive Audit Action Buttons */
+.filter-btn {
+    background-color: #1f6feb;
+    border: 1px solid transparent;
+    color: #ffffff;
+    padding: 0 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    height: 38px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.filter-btn:hover {
+    background-color: #388bfd;
+}
+
+.clear-btn {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+
+.clear-btn:hover {
+    background-color: #30363d;
+    border-color: #8b949e;
+}
+
+/* Unified Layout Architecture for the Data Matrix */
+.logs-table-wrapper {
+    overflow-x: auto;
+}
+
+.logs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    text-align: left;
+}
+
+.logs-table th {
+    padding: 12px 16px;
+    background-color: #0d1117;
+    color: #8b949e;
+    font-weight: 500;
+    border-bottom: 1px solid #30363d;
+    white-space: nowrap;
+}
+
+.logs-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #21262d;
+    color: #e6edf3;
+}
+
+.logs-table tr:hover td {
+    background-color: #21262d;
+}
+
+.loading-cell {
+    text-align: center;
+    padding: 40px !important;
+    color: #8b949e;
+    font-style: italic;
+}
+
+.table-count {
+    padding: 12px 20px;
+    border-top: 1px solid #30363d;
+    color: #8b949e;
+    font-size: 12px;
+    text-align: right;
+    background-color: #161b22;
+}
+
+/* Calendar icon theme fixing for modern input systems */
+::-webkit-calendar-picker-indicator {
+    filter: invert(0.8);
+    cursor: pointer;
+}

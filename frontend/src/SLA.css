@@ -1,0 +1,234 @@
+.sla-container {
+    background-color: #161b22;
+    border-radius: 12px;
+    border: 1px solid #30363d;
+    overflow: hidden;
+    width: 100%;
+}
+
+.sla-header {
+    padding: 20px;
+    border-bottom: 1px solid #30363d;
+}
+
+.header-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.header-top-row h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #e6edf3;
+    margin: 0;
+}
+
+.last-update-badge {
+    background-color: #21262d;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: #8b949e;
+    border: 1px solid #30363d;
+}
+
+/* SLA Dynamic Scorecard Grids */
+.sla-stats-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.sla-stats-summary .stat-summary-card {
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.sla-stats-summary .stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #8b949e;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+
+.sla-stats-summary .stat-value {
+    font-size: 26px;
+    font-weight: 700;
+    color: #e6edf3;
+}
+
+/* Card Accent Channels */
+.stat-summary-card.total-records { border-left: 4px solid #1f6feb; }
+.stat-summary-card.submissions { border-left: 4px solid #a371f7; }
+.stat-summary-card.overall-sla { border-left: 4px solid #2ea44f; }
+
+/* Filter Structuring Panels */
+.sla-filter-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #21262d;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.date-filters {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.date-filters label, .submission-selector label {
+    font-size: 13px;
+    color: #8b949e;
+}
+
+.date-filter-input, .submission-select {
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    padding: 6px 12px;
+    font-size: 13px;
+    height: 36px;
+}
+
+.submission-select {
+    cursor: pointer;
+}
+
+/* Secondary Advanced Extra Filters Bar */
+.sla-extra-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+.sla-extra-filters .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sla-extra-filters .filter-group label {
+    font-size: 12px;
+    color: #8b949e;
+    font-weight: 500;
+}
+
+.filter-select-small, .filter-input-small {
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    padding: 6px 12px;
+    font-size: 13px;
+    height: 36px;
+    min-width: 160px;
+}
+
+.action-buttons-wrapper {
+    display: flex;
+    gap: 8px;
+}
+
+/* Interface Utility Action Buttons */
+.filter-btn {
+    background-color: #21262d;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+    padding: 0 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    height: 36px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.filter-btn:hover {
+    background-color: #30363d;
+    border-color: #8b949e;
+}
+
+.apply-filters-btn {
+    background-color: #1f6feb;
+    border-color: transparent;
+    color: white;
+    font-weight: 600;
+}
+
+.apply-filters-btn:hover {
+    background-color: #388bfd;
+}
+
+/* Analytics Data Matrix Grid Layout */
+.sla-table-wrapper {
+    overflow-x: auto;
+}
+
+.sla-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    text-align: left;
+}
+
+.sla-table th {
+    padding: 14px 16px;
+    background-color: #0d1117;
+    color: #8b949e;
+    font-weight: 500;
+    border-bottom: 1px solid #30363d;
+    white-space: nowrap;
+}
+
+.sla-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid #21262d;
+    color: #e6edf3;
+}
+
+.sla-table tr:hover td {
+    background-color: #21262d;
+}
+
+.engineer-cell {
+    font-weight: 500;
+    color: #c9d1d9;
+}
+
+/* Status Semantic Highlights */
+.text-success { color: #56d364; }
+.text-warning { color: #e3b341; }
+.text-critical { color: #f85149; }
+.text-bold { font-weight: 600; }
+
+.loading-cell {
+    text-align: center;
+    padding: 48px !important;
+    color: #8b949e;
+    font-style: italic;
+}
+
+.table-count {
+    padding: 12px 20px;
+    border-top: 1px solid #30363d;
+    color: #8b949e;
+    font-size: 12px;
+    text-align: right;
+    background-color: #161b22;
+}
+
+::-webkit-calendar-picker-indicator {
+    filter: invert(0.8);
+}
