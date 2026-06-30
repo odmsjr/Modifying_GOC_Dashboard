@@ -8,3 +8,6 @@
 # Backend: Standard node/environment ignores
 node_modules/
 .env
+
+certs\
+*.pem
