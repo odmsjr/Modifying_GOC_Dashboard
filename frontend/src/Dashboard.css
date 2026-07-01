@@ -652,3 +652,232 @@ body {
     .stat-card { min-width: calc(33.33% - 8px); padding: 16px 12px; }
     .stat-number { font-size: 28px; }
 }
+
+/* ============================================================ */
+/* POLISH: STATUS CARDS                                         */
+/* ============================================================ */
+
+/* All Active Issues card */
+.stat-card.all {
+    border-left-color: #58a6ff;
+    background: linear-gradient(135deg, #161b22 0%, #111d2f 100%);
+}
+
+.stat-card.all .stat-number {
+    color: #c9d1d9;
+}
+
+.stat-card.all.active {
+    outline: 2px solid #58a6ff;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.25), 0 8px 22px rgba(88, 166, 255, 0.12);
+}
+
+/* Better active card effects per status */
+.stat-card.critical.active {
+    outline-color: #f85149;
+    box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.25), 0 8px 22px rgba(248, 81, 73, 0.12);
+}
+
+.stat-card.warning.active {
+    outline-color: #ff9830;
+    box-shadow: 0 0 0 1px rgba(255, 152, 48, 0.25), 0 8px 22px rgba(255, 152, 48, 0.12);
+}
+
+.stat-card.unknown.active {
+    outline-color: #8b949e;
+    box-shadow: 0 0 0 1px rgba(139, 148, 158, 0.25), 0 8px 22px rgba(139, 148, 158, 0.12);
+}
+
+/* Make card labels slightly cleaner */
+.stat-label {
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+/* Keep big numbers balanced */
+.stat-number {
+    line-height: 1;
+}
+
+/* Better wrapping when window gets narrower */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(180px, 1fr));
+    gap: 24px;
+}
+
+.stat-card {
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* ============================================================ */
+/* POLISH: STATUS TEXT BADGES                                   */
+/* ============================================================ */
+
+.status-text {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 76px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+}
+
+.status-text.critical {
+    color: #ffebe9;
+    background-color: rgba(248, 81, 73, 0.18);
+    border-color: rgba(248, 81, 73, 0.45);
+}
+
+.status-text.warning {
+    color: #fff8c5;
+    background-color: rgba(255, 152, 48, 0.18);
+    border-color: rgba(255, 152, 48, 0.45);
+}
+
+.status-text.unknown {
+    color: #e6edf3;
+    background-color: rgba(139, 148, 158, 0.18);
+    border-color: rgba(139, 148, 158, 0.45);
+}
+
+.status-text.ok {
+    color: #d2ffdc;
+    background-color: rgba(35, 134, 54, 0.18);
+    border-color: rgba(35, 134, 54, 0.45);
+}
+
+/* ============================================================ */
+/* POLISH: FILTER SECTION                                       */
+/* ============================================================ */
+
+.filter-section {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.filter-input,
+.filter-select,
+.search-input {
+    min-height: 44px;
+}
+
+.filter-input-group label {
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+}
+
+/* ============================================================ */
+/* POLISH: TABLE                                                */
+/* ============================================================ */
+
+.services-section {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.services-table th {
+    font-size: 12px;
+    letter-spacing: 0.4px;
+    text-transform: none;
+}
+
+.services-table td {
+    line-height: 1.45;
+}
+
+.services-table tr:last-child td {
+    border-bottom: none;
+}
+
+.host-name {
+    color: #c9e8ff;
+    font-weight: 700;
+}
+
+.service-name {
+    color: #e6edf3;
+    font-weight: 600;
+}
+
+.service-output {
+    color: #c9d1d9;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+/* Make acknowledged badge cleaner */
+.ack-badge {
+    background-color: rgba(111, 66, 193, 0.85) !important;
+    border: 1px solid rgba(163, 113, 247, 0.45);
+}
+
+/* Pending badge if used in JSX */
+.pending-badge {
+    background-color: rgba(255, 152, 48, 0.18);
+    color: #ffcc85;
+    border: 1px solid rgba(255, 152, 48, 0.45);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* ============================================================ */
+/* POLISH: PAGINATION / BUTTONS                                 */
+/* ============================================================ */
+
+.refresh-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.refresh-btn:disabled:hover {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+.refresh-btn {
+    min-height: 36px;
+}
+
+.refresh-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
+/* ============================================================ */
+/* RESPONSIVE IMPROVEMENTS                                      */
+/* ============================================================ */
+
+@media (max-width: 1400px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .content-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .content-header h1 {
+        font-size: 32px;
+    }
+
+    .stat-card {
+        min-width: 100%;
+    }
+}
