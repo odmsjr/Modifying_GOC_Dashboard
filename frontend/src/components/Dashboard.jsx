@@ -18,7 +18,7 @@ export default function Dashboard() {
     const [filters, setFilters] = useState({ host: '', service: '', poller: 'all' });
     const [showAllStatusesForPoller, setShowAllStatusesForPoller] = useState(true);
 
-    // --- PAGINATION STATE ---
+    // --- SERVICE PAGINATION STATE ---
     const [servicePage, setServicePage] = useState(1);
     const [serviceLimit, setServiceLimit] = useState(100);
     const [serviceMeta, setServiceMeta] = useState({
@@ -28,7 +28,7 @@ export default function Dashboard() {
     });
     const [isLoadingServices, setIsLoadingServices] = useState(false);
 
-    // --- LIVE CACHED API DATA ---
+    // --- DASHBOARD COUNTS ---
     const [counts, setCounts] = useState({
         allActiveIssues: 0,
         critical: 0,
@@ -42,10 +42,33 @@ export default function Dashboard() {
     const [cachedSearchResults, setCachedSearchResults] = useState([]);
     const [pollerDropdownList, setPollerDropdownList] = useState([]);
 
-    // --- POLLERS DRILL-DOWN STATE ---
+    // --- POLLERS PAGE STATE ---
     const [cachedPollers, setCachedPollers] = useState([]);
     const [pollerSearch, setPollerSearch] = useState('');
     const [selectedPoller, setSelectedPoller] = useState(null);
+    const [selectedPollerId, setSelectedPollerId] = useState(null);
+
+    const [pollerHosts, setPollerHosts] = useState([]);
+    const [pollerHostPage, setPollerHostPage] = useState(1);
+    const [pollerHostLimit] = useState(20);
+    const [pollerHostMeta, setPollerHostMeta] = useState({
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 1
+    });
+    const [isLoadingPollerHosts, setIsLoadingPollerHosts] = useState(false);
+
+    // --- SELECTED POLLER SERVICES STATE ---
+    const [pollerServices, setPollerServices] = useState([]);
+    const [isLoadingPollerServices, setIsLoadingPollerServices] = useState(false);
+
+    const [pollerServiceCounts, setPollerServiceCounts] = useState({
+        allActiveIssues: null,
+        critical: null,
+        warning: null,
+        unknown: null
+    });
 
     // --- GLOBAL SEARCH STATE ---
     const [debouncedHostSearch, setDebouncedHostSearch] = useState('');
@@ -89,8 +112,43 @@ export default function Dashboard() {
         };
     };
 
+    const getHostStateName = (host) => {
+        const state = Number(host.state);
+
+        if (state === 0) return 'UP';
+        if (state === 1) return 'DOWN';
+        if (state === 2) return 'UNREACHABLE';
+        if (state === 3) return 'PENDING';
+
+        return host.status?.name || 'UNKNOWN';
+    };
+
+    const getHostStateClass = (host) => {
+        const stateName = getHostStateName(host);
+
+        if (stateName === 'UP') return 'ok';
+        if (stateName === 'DOWN') return 'critical';
+        if (stateName === 'UNREACHABLE') return 'unknown';
+        if (stateName === 'PENDING') return 'warning';
+
+        return 'unknown';
+    };
+
+    const buildServiceCounts = (services) => {
+        const critical = services.filter(service => service.statusCode === 2).length;
+        const warning = services.filter(service => service.statusCode === 1).length;
+        const unknown = services.filter(service => service.statusCode === 3).length;
+
+        return {
+            allActiveIssues: critical + warning + unknown,
+            critical,
+            warning,
+            unknown
+        };
+    };
+
     // ============================================================
-    // ROUTER & SUB-MENU STATE RESET CLEANERS
+    // ROUTER RESET
     // ============================================================
     useEffect(() => {
         if (location.pathname === '/dashboard' && location.state) {
@@ -111,11 +169,20 @@ export default function Dashboard() {
 
         if (location.pathname !== '/pollers') {
             setSelectedPoller(null);
+            setSelectedPollerId(null);
+            setPollerHosts([]);
+            setPollerServices([]);
+            setPollerServiceCounts({
+                allActiveIssues: null,
+                critical: null,
+                warning: null,
+                unknown: null
+            });
         }
     }, [location, navigate]);
 
     // ============================================================
-    // HOST SEARCH DEBOUNCE
+    // SEARCH DEBOUNCE
     // ============================================================
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -126,9 +193,6 @@ export default function Dashboard() {
         return () => clearTimeout(timer);
     }, [filters.host]);
 
-    // ============================================================
-    // SERVICE SEARCH DEBOUNCE
-    // ============================================================
     useEffect(() => {
         const timer = setTimeout(() => {
             setDebouncedServiceSearch(filters.service.trim());
@@ -139,7 +203,7 @@ export default function Dashboard() {
     }, [filters.service]);
 
     // ============================================================
-    // CONNECTED FETCH ENGINE
+    // DASHBOARD FETCH
     // ============================================================
     const refreshDashboardData = useCallback(async () => {
         try {
@@ -233,56 +297,221 @@ export default function Dashboard() {
         }
     }, [debouncedHostSearch, debouncedServiceSearch, servicePage, serviceLimit]);
 
+    // ============================================================
+    // POLLERS FETCH
+    // ============================================================
     const fetchPollersRoster = useCallback(async () => {
         try {
             const token = localStorage.getItem('centreon_auth_token');
 
-            const response = await fetch(`${BASE_API_URL}/api/centreon/hosts`, {
+            const response = await fetch(`${BASE_API_URL}/api/centreon/pollers`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
             });
 
             if (!response.ok) {
+                const errorText = await response.text();
+                console.error("Pollers endpoint failed:", response.status, errorText);
                 throw new Error(`HTTP Error ${response.status}`);
             }
 
             const payload = await response.json();
-            const rawHosts = payload.data?.result || [];
-            const normalizedHosts = rawHosts.map(normalizeHost);
 
-            const pollerMap = {};
+            const rawPollers =
+                payload.data?.result ||
+                payload.result ||
+                [];
 
-            normalizedHosts.forEach(host => {
-                const pName = host.poller_name || 'Default Poller';
+            const mappedPollers = rawPollers.map(poller => ({
+                Poller: poller.poller_name || `Poller ${poller.poller_id}`,
+                poller_id: poller.poller_id,
+                Address: poller.address || 'N/A',
+                ServerType: poller.server_type || 'N/A',
+                Total: poller.totalHosts ?? null,
+                Critical: poller.downHosts ?? null,
+                Warning: poller.pendingHosts ?? null,
+                Unknown: poller.unreachableHosts ?? null,
+                upHosts: poller.upHosts ?? null,
+                downHosts: poller.downHosts ?? null,
+                unreachableHosts: poller.unreachableHosts ?? null,
+                pendingHosts: poller.pendingHosts ?? null
+            }));
 
-                if (!pollerMap[pName]) {
-                    pollerMap[pName] = {
-                        Poller: pName,
-                        Critical: 0,
-                        Warning: 0,
-                        Unknown: 0,
-                        Total: 0
-                    };
-                }
+            setCachedPollers(mappedPollers);
 
-                if (host.state === 1) {
-                    pollerMap[pName].Critical++;
-                } else if (host.state === 2) {
-                    pollerMap[pName].Unknown++;
-                } else if (host.state === 3) {
-                    pollerMap[pName].Warning++;
-                }
-
-                pollerMap[pName].Total++;
-            });
-
-            setCachedPollers(Object.values(pollerMap));
+            if (payload.meta?.hostCountRefreshing && !payload.meta?.hostCountLoaded) {
+                setTimeout(() => {
+                    fetchPollersRoster();
+                }, 5000);
+            }
 
         } catch (error) {
-            console.error('Error fetching engine pollers roster:', error);
+            console.error('Error fetching pollers roster:', error);
+            setCachedPollers([]);
         }
     }, []);
+
+    const fetchServicesForVisibleHosts = useCallback(async (hosts) => {
+        try {
+            setIsLoadingPollerServices(true);
+
+            const token = localStorage.getItem('centreon_auth_token');
+
+            const hostsWithIds = hosts
+                .map(host => ({
+                    host,
+                    hostId: host.id ?? host.host_id
+                }))
+                .filter(item => item.hostId !== undefined && item.hostId !== null);
+
+            if (hostsWithIds.length === 0) {
+                setPollerServices([]);
+                setPollerServiceCounts({
+                    allActiveIssues: 0,
+                    critical: 0,
+                    warning: 0,
+                    unknown: 0
+                });
+                return;
+            }
+
+            const results = await Promise.all(
+                hostsWithIds.map(async ({ host, hostId }) => {
+                    try {
+                        const response = await fetch(`${BASE_API_URL}/api/centreon/services/host/${hostId}`, {
+                            headers: {
+                                'Authorization': `Bearer ${token}`
+                            }
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`HTTP Error ${response.status}`);
+                        }
+
+                        const payload = await response.json();
+
+                        return (payload.data?.result || []).map(service => normalizeService({
+                            ...service,
+                            host: service.host || {
+                                id: hostId,
+                                name: host.name,
+                                display_name: host.display_name,
+                                alias: host.alias,
+                                poller_id: host.poller_id,
+                                poller_name: host.poller_name
+                            }
+                        }));
+
+                    } catch (error) {
+                        console.warn("Failed loading services for host:", hostId, error);
+                        return [];
+                    }
+                })
+            );
+
+            const allServices = results.flat();
+
+            const activeIssueServices = allServices.filter(service =>
+                service.statusCode === 1 ||
+                service.statusCode === 2 ||
+                service.statusCode === 3
+            );
+
+            setPollerServices(activeIssueServices);
+            setPollerServiceCounts(buildServiceCounts(activeIssueServices));
+
+        } catch (error) {
+            console.error("Error loading services for visible poller hosts:", error);
+            setPollerServices([]);
+            setPollerServiceCounts({
+                allActiveIssues: 0,
+                critical: 0,
+                warning: 0,
+                unknown: 0
+            });
+        } finally {
+            setIsLoadingPollerServices(false);
+        }
+    }, []);
+
+    const fetchPollerHosts = useCallback(async (pollerId, page = 1, limit = pollerHostLimit) => {
+        try {
+            if (!pollerId) return;
+
+            setIsLoadingPollerHosts(true);
+            setIsLoadingPollerServices(true);
+
+            const token = localStorage.getItem('centreon_auth_token');
+
+            const response = await fetch(
+                `${BASE_API_URL}/api/centreon/pollers/${pollerId}/hosts?page=${page}&limit=${limit}`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP Error ${response.status}`);
+            }
+
+            const payload = await response.json();
+
+            const returnedHosts = payload.data?.result || [];
+
+            setPollerHosts(returnedHosts);
+            setPollerHostMeta(payload.meta || {
+                page,
+                limit,
+                total: 0,
+                totalPages: 1
+            });
+
+            if (payload.meta?.hostCacheRefreshing && !payload.meta?.hostCacheLoaded) {
+                setPollerServices([]);
+                setPollerServiceCounts({
+                    allActiveIssues: null,
+                    critical: null,
+                    warning: null,
+                    unknown: null
+                });
+
+                setTimeout(() => {
+                    fetchPollerHosts(pollerId, page, limit);
+                }, 5000);
+
+                return;
+            }
+
+            if (returnedHosts.length > 0) {
+                await fetchServicesForVisibleHosts(returnedHosts);
+            } else {
+                setPollerServices([]);
+                setPollerServiceCounts({
+                    allActiveIssues: 0,
+                    critical: 0,
+                    warning: 0,
+                    unknown: 0
+                });
+                setIsLoadingPollerServices(false);
+            }
+
+        } catch (error) {
+            console.error('Error fetching poller hosts:', error);
+            setPollerServices([]);
+            setPollerServiceCounts({
+                allActiveIssues: 0,
+                critical: 0,
+                warning: 0,
+                unknown: 0
+            });
+            setIsLoadingPollerServices(false);
+        } finally {
+            setIsLoadingPollerHosts(false);
+        }
+    }, [pollerHostLimit, fetchServicesForVisibleHosts]);
 
     // ============================================================
     // MANUAL REFRESH
@@ -290,10 +519,14 @@ export default function Dashboard() {
     const handleGlobalManualRefresh = () => {
         refreshDashboardData();
         fetchPollersRoster();
+
+        if (selectedPollerId) {
+            fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
+        }
     };
 
     // ============================================================
-    // CORE LIFECYCLE SECURITY GUARD
+    // LIFECYCLE
     // ============================================================
     useEffect(() => {
         if (!localStorage.getItem('centreon_auth_token')) {
@@ -309,13 +542,32 @@ export default function Dashboard() {
         const heartbeat = setInterval(() => {
             refreshDashboardData();
             fetchPollersRoster();
+
+            if (selectedPollerId) {
+                fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
+            }
         }, 300000);
 
         return () => clearInterval(heartbeat);
-    }, [refreshDashboardData, fetchPollersRoster, location.pathname, navigate]);
+    }, [
+        refreshDashboardData,
+        fetchPollersRoster,
+        fetchPollerHosts,
+        selectedPollerId,
+        pollerHostPage,
+        pollerHostLimit,
+        location.pathname,
+        navigate
+    ]);
+
+    useEffect(() => {
+        if (location.pathname === '/pollers' && selectedPollerId) {
+            fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
+        }
+    }, [location.pathname, selectedPollerId, pollerHostPage, pollerHostLimit, fetchPollerHosts]);
 
     // ============================================================
-    // MEMOIZED CONTEXT CALCULATIONS
+    // MEMOIZED DATA
     // ============================================================
     const activePollerContext = useMemo(() => {
         if (location.pathname === '/dashboard') return filters.poller;
@@ -323,7 +575,21 @@ export default function Dashboard() {
         return 'all';
     }, [location.pathname, filters.poller, selectedPoller]);
 
+    const filteredPollers = useMemo(() => {
+        const search = pollerSearch.toLowerCase().trim();
+
+        return cachedPollers.filter(p =>
+            !search ||
+            p.Poller?.toLowerCase().includes(search) ||
+            String(p.poller_id || '').includes(search)
+        );
+    }, [cachedPollers, pollerSearch]);
+
     const displayCounts = useMemo(() => {
+        if (location.pathname === '/pollers' && selectedPollerId) {
+            return pollerServiceCounts;
+        }
+
         if (activePollerContext !== 'all') {
             const critical = cachedCritical.filter(s => s.poller_name === activePollerContext).length;
             const warning = cachedWarning.filter(s => s.poller_name === activePollerContext).length;
@@ -338,7 +604,16 @@ export default function Dashboard() {
         }
 
         return counts;
-    }, [activePollerContext, counts, cachedCritical, cachedWarning, cachedUnknown]);
+    }, [
+        location.pathname,
+        selectedPollerId,
+        pollerServiceCounts,
+        activePollerContext,
+        counts,
+        cachedCritical,
+        cachedWarning,
+        cachedUnknown
+    ]);
 
     const isSearchMode = Boolean(debouncedHostSearch || debouncedServiceSearch);
 
@@ -346,29 +621,16 @@ export default function Dashboard() {
         let source = [];
 
         if (isSearchMode) {
-            if (isSearchMode) {
-    const activeIssueResults = cachedSearchResults.filter(item =>
-        item.statusCode === 1 ||
-        item.statusCode === 2 ||
-        item.statusCode === 3
-    );
+            const activeIssueResults = cachedSearchResults.filter(item =>
+                item.statusCode === 1 ||
+                item.statusCode === 2 ||
+                item.statusCode === 3
+            );
 
-    if (currentTableType === 'all') {
-        source = activeIssueResults;
-    }
-
-    if (currentTableType === 'critical') {
-        source = activeIssueResults.filter(item => item.statusCode === 2);
-    }
-
-    if (currentTableType === 'warning') {
-        source = activeIssueResults.filter(item => item.statusCode === 1);
-    }
-
-    if (currentTableType === 'unknown') {
-        source = activeIssueResults.filter(item => item.statusCode === 3);
-    }
-}
+            if (currentTableType === 'all') source = activeIssueResults;
+            if (currentTableType === 'critical') source = activeIssueResults.filter(item => item.statusCode === 2);
+            if (currentTableType === 'warning') source = activeIssueResults.filter(item => item.statusCode === 1);
+            if (currentTableType === 'unknown') source = activeIssueResults.filter(item => item.statusCode === 3);
         } else if (showAllStatusesForPoller) {
             source = [...cachedCritical, ...cachedWarning, ...cachedUnknown];
         } else {
@@ -407,25 +669,13 @@ export default function Dashboard() {
         filters
     ]);
 
-    const filteredPollers = useMemo(() => {
-        return cachedPollers.filter(p =>
-            !pollerSearch ||
-            p.Poller?.toLowerCase().includes(pollerSearch.toLowerCase())
-        );
-    }, [cachedPollers, pollerSearch]);
-
-    const pollerFilteredServices = useMemo(() => {
-        if (!selectedPoller) return [];
-
-        let source = [];
-
-        if (currentTableType === 'all') source = [...cachedCritical, ...cachedWarning, ...cachedUnknown];
-        if (currentTableType === 'critical') source = cachedCritical;
-        if (currentTableType === 'warning') source = cachedWarning;
-        if (currentTableType === 'unknown') source = cachedUnknown;
-
-        return source.filter(item => item.poller_name === selectedPoller);
-    }, [selectedPoller, currentTableType, cachedCritical, cachedWarning, cachedUnknown]);
+    const filteredPollerServices = useMemo(() => {
+        if (currentTableType === 'all') return pollerServices;
+        if (currentTableType === 'critical') return pollerServices.filter(service => service.statusCode === 2);
+        if (currentTableType === 'warning') return pollerServices.filter(service => service.statusCode === 1);
+        if (currentTableType === 'unknown') return pollerServices.filter(service => service.statusCode === 3);
+        return pollerServices;
+    }, [pollerServices, currentTableType]);
 
     // ============================================================
     // PAGINATION HELPERS
@@ -457,7 +707,7 @@ export default function Dashboard() {
     };
 
     // ============================================================
-    // ACKNOWLEDGMENT SUBMISSION HANDLER
+    // ACKNOWLEDGMENT / LOGOUT
     // ============================================================
     const handleAcknowledge = async (hostName, serviceDescription) => {
         try {
@@ -493,7 +743,6 @@ export default function Dashboard() {
 
     return (
         <div className="app-container">
-            {/* SIDEBAR NAVIGATION */}
             <aside className="sidebar">
                 <div className="logo">
                     <span className="logo-icon">📊</span>
@@ -531,7 +780,6 @@ export default function Dashboard() {
                 </div>
             </aside>
 
-            {/* MAIN CONTENT AREA */}
             <main className="main-content">
                 <header className="content-header">
                     <h1>
@@ -546,8 +794,7 @@ export default function Dashboard() {
                     </button>
                 </header>
 
-                {/* STATS GRID */}
-                {(location.pathname === '/dashboard' || location.pathname === '/pollers') && (
+                {(location.pathname === '/dashboard' || (location.pathname === '/pollers' && selectedPoller)) && (
                     <div className="stats-grid" style={{ marginBottom: '24px' }}>
                         <div
                             className={`stat-card all ${currentTableType === 'all' ? 'active' : ''}`}
@@ -556,7 +803,7 @@ export default function Dashboard() {
                                 if (location.pathname === '/dashboard') setShowAllStatusesForPoller(true);
                             }}
                         >
-                            <div className="stat-number">{displayCounts.allActiveIssues}</div>
+                            <div className="stat-number">{displayCounts.allActiveIssues ?? '-'}</div>
                             <div className="stat-label">All Active Issues</div>
                         </div>
 
@@ -567,7 +814,7 @@ export default function Dashboard() {
                                 if (location.pathname === '/dashboard') setShowAllStatusesForPoller(false);
                             }}
                         >
-                            <div className="stat-number">{displayCounts.critical}</div>
+                            <div className="stat-number">{displayCounts.critical ?? '-'}</div>
                             <div className="stat-label">Critical</div>
                         </div>
 
@@ -578,7 +825,7 @@ export default function Dashboard() {
                                 if (location.pathname === '/dashboard') setShowAllStatusesForPoller(false);
                             }}
                         >
-                            <div className="stat-number">{displayCounts.warning}</div>
+                            <div className="stat-number">{displayCounts.warning ?? '-'}</div>
                             <div className="stat-label">Warning</div>
                         </div>
 
@@ -589,13 +836,12 @@ export default function Dashboard() {
                                 if (location.pathname === '/dashboard') setShowAllStatusesForPoller(false);
                             }}
                         >
-                            <div className="stat-number">{displayCounts.unknown}</div>
+                            <div className="stat-number">{displayCounts.unknown ?? '-'}</div>
                             <div className="stat-label">Unknown</div>
                         </div>
                     </div>
                 )}
 
-                {/* DASHBOARD OVERVIEW PANEL */}
                 {location.pathname === '/dashboard' && (
                     <div className="page active">
                         <div className="top-row">
@@ -732,7 +978,6 @@ export default function Dashboard() {
                                 </table>
                             </div>
 
-                            {/* PAGINATION CONTROLS */}
                             <div
                                 style={{
                                     display: 'flex',
@@ -817,7 +1062,6 @@ export default function Dashboard() {
                     </div>
                 )}
 
-                {/* POLLERS PANEL */}
                 {location.pathname === '/pollers' && (
                     <div className="page active">
                         <div className="pollers-container">
@@ -830,7 +1074,7 @@ export default function Dashboard() {
                                             <input
                                                 type="text"
                                                 className="search-input"
-                                                placeholder="Filter pollers by string name..."
+                                                placeholder="Filter pollers by name or ID..."
                                                 value={pollerSearch}
                                                 onChange={(e) => setPollerSearch(e.target.value)}
                                             />
@@ -841,37 +1085,59 @@ export default function Dashboard() {
                                         <table className="pollers-table">
                                             <thead>
                                                 <tr>
-                                                    <th>Instance Name</th>
-                                                    <th>Monitored Items</th>
-                                                    <th>Active Status Scope</th>
+                                                    <th>Poller</th>
+                                                    <th>Address</th>
+                                                    <th>Server Type</th>
+                                                    <th>Total Hosts</th>
+                                                    <th>UP</th>
+                                                    <th>DOWN</th>
+                                                    <th>UNREACHABLE</th>
+                                                    <th>PENDING</th>
                                                 </tr>
                                             </thead>
 
                                             <tbody>
                                                 {filteredPollers.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan="3" className="loading-cell">
+                                                        <td colSpan="8" className="loading-cell">
                                                             No poller found matching search parameters.
                                                         </td>
                                                     </tr>
                                                 ) : (
                                                     filteredPollers.map((p, idx) => (
-                                                        <tr key={idx}>
+                                                        <tr key={p.poller_id || idx}>
                                                             <td
                                                                 className="poller-name"
                                                                 style={{ cursor: 'pointer', color: '#58a6ff' }}
-                                                                onClick={() => setSelectedPoller(p.Poller)}
+                                                                onClick={() => {
+                                                                    setSelectedPoller(p.Poller);
+                                                                    setSelectedPollerId(p.poller_id);
+
+                                                                    setCurrentTableType('all');
+                                                                    setPollerHostPage(1);
+
+                                                                    setPollerHosts([]);
+                                                                    setPollerServices([]);
+                                                                    setPollerServiceCounts({
+                                                                        allActiveIssues: null,
+                                                                        critical: null,
+                                                                        warning: null,
+                                                                        unknown: null
+                                                                    });
+
+                                                                    fetchPollerHosts(p.poller_id, 1, pollerHostLimit);
+                                                                }}
                                                             >
-                                                                📁 {p.Poller || 'Unknown'}
+                                                                {p.Poller || `Poller ${p.poller_id}`}
                                                             </td>
 
-                                                            <td className="total-count">
-                                                                {p.Total || 0} items tracked
-                                                            </td>
-
-                                                            <td className="critical-count">
-                                                                {p.Critical > 0 ? `⚠️ ${p.Critical} Outages Detected` : '🟢 Healthy'}
-                                                            </td>
+                                                            <td className="address">{p.Address || 'N/A'}</td>
+                                                            <td className="server-type">{p.ServerType || 'N/A'}</td>
+                                                            <td className="total-count">{p.Total ?? '-'}</td>
+                                                            <td style={{ color: '#3fb950', fontWeight: 'bold' }}>{p.upHosts ?? '-'}</td>
+                                                            <td className="critical-count">{p.downHosts ?? '-'}</td>
+                                                            <td className="warning-count">{p.unreachableHosts ?? '-'}</td>
+                                                            <td style={{ color: '#8b949e', fontWeight: 'bold' }}>{p.pendingHosts ?? '-'}</td>
                                                         </tr>
                                                     ))
                                                 )}
@@ -886,10 +1152,25 @@ export default function Dashboard() {
                             ) : (
                                 <>
                                     <div className="pollers-header">
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
                                             <button
                                                 className="refresh-btn"
-                                                onClick={() => setSelectedPoller(null)}
+                                                onClick={() => {
+                                                    setSelectedPoller(null);
+                                                    setSelectedPollerId(null);
+
+                                                    setPollerHosts([]);
+                                                    setPollerServices([]);
+
+                                                    setPollerServiceCounts({
+                                                        allActiveIssues: null,
+                                                        critical: null,
+                                                        warning: null,
+                                                        unknown: null
+                                                    });
+
+                                                    setCurrentTableType('all');
+                                                }}
                                                 style={{ backgroundColor: '#21262d', color: '#c9d1d9' }}
                                             >
                                                 ⬅ Back to Pollers List
@@ -900,22 +1181,8 @@ export default function Dashboard() {
                                             </h2>
                                         </div>
 
-                                        <span
-                                            className="service-count"
-                                            style={{
-                                                textTransform: 'uppercase',
-                                                fontWeight: 'bold',
-                                                color:
-                                                    currentTableType === 'critical'
-                                                        ? '#f85149'
-                                                        : currentTableType === 'warning'
-                                                            ? '#d29922'
-                                                            : currentTableType === 'unknown'
-                                                                ? '#58a6ff'
-                                                                : '#c9d1d9'
-                                            }}
-                                        >
-                                            {currentTableType} Status Exceptions ({pollerFilteredServices.length})
+                                        <span className="service-count">
+                                            Active services from current host page
                                         </span>
                                     </div>
 
@@ -932,14 +1199,26 @@ export default function Dashboard() {
                                             </thead>
 
                                             <tbody>
-                                                {pollerFilteredServices.length === 0 ? (
+                                                {isLoadingPollerHosts ? (
                                                     <tr>
                                                         <td colSpan="5" className="loading-cell">
-                                                            No active {currentTableType} targets found under this poller.
+                                                            Loading hosts for {selectedPoller}...
+                                                        </td>
+                                                    </tr>
+                                                ) : isLoadingPollerServices ? (
+                                                    <tr>
+                                                        <td colSpan="5" className="loading-cell">
+                                                            Loading active services for visible hosts...
+                                                        </td>
+                                                    </tr>
+                                                ) : filteredPollerServices.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan="5" className="loading-cell">
+                                                            No active Critical, Warning, or Unknown services found for this host page.
                                                         </td>
                                                     </tr>
                                                 ) : (
-                                                    pollerFilteredServices.map((service, idx) => (
+                                                    filteredPollerServices.map((service, idx) => (
                                                         <tr key={service.id || idx}>
                                                             <td className="host-name">
                                                                 {service.host?.name || service.host?.display_name || 'N/A'}
@@ -963,26 +1242,7 @@ export default function Dashboard() {
                                                                 {service.is_acknowledged ? (
                                                                     <span className="ack-badge">Acknowledged</span>
                                                                 ) : (
-                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                        <span className="pending-badge">Pending</span>
-
-                                                                        <button
-                                                                            className="ack-btn"
-                                                                            onClick={() => handleAcknowledge(service.host?.name, service.description)}
-                                                                            style={{
-                                                                                background: '#238636',
-                                                                                color: 'white',
-                                                                                border: 'none',
-                                                                                padding: '2px 8px',
-                                                                                borderRadius: '4px',
-                                                                                cursor: 'pointer',
-                                                                                fontSize: '11px',
-                                                                                fontWeight: 'bold'
-                                                                            }}
-                                                                        >
-                                                                            Ack
-                                                                        </button>
-                                                                    </div>
+                                                                    <span className="pending-badge">Pending</span>
                                                                 )}
                                                             </td>
                                                         </tr>
@@ -992,8 +1252,46 @@ export default function Dashboard() {
                                         </table>
                                     </div>
 
-                                    <div className="table-count">
-                                        Active Context Items: {pollerFilteredServices.length}
+                                    <div
+                                        style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            padding: '12px 20px',
+                                            borderTop: '1px solid #30363d',
+                                            flexWrap: 'wrap',
+                                            gap: '12px'
+                                        }}
+                                    >
+                                        <div className="table-count" style={{ padding: 0, borderTop: 'none' }}>
+                                            Host Page: {pollerHostMeta.page || pollerHostPage} of {pollerHostMeta.totalPages || 1}
+                                            {' '}| Hosts: {pollerHostMeta.total || 0}
+                                            {' '}| Active Services Loaded: {pollerServices.length}
+                                        </div>
+
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button
+                                                className="refresh-btn"
+                                                disabled={pollerHostPage <= 1 || isLoadingPollerHosts || isLoadingPollerServices}
+                                                onClick={() => {
+                                                    setPollerHostPage(prev => Math.max(prev - 1, 1));
+                                                    setCurrentTableType('all');
+                                                }}
+                                            >
+                                                Previous
+                                            </button>
+
+                                            <button
+                                                className="refresh-btn"
+                                                disabled={pollerHostPage >= (pollerHostMeta.totalPages || 1) || isLoadingPollerHosts || isLoadingPollerServices}
+                                                onClick={() => {
+                                                    setPollerHostPage(prev => prev + 1);
+                                                    setCurrentTableType('all');
+                                                }}
+                                            >
+                                                Next
+                                            </button>
+                                        </div>
                                     </div>
                                 </>
                             )}
@@ -1001,10 +1299,7 @@ export default function Dashboard() {
                     </div>
                 )}
 
-                {/* SLA PANEL */}
                 {location.pathname === '/sla' && <Sla />}
-
-                {/* LOGS PANEL */}
                 {location.pathname === '/logs' && <Logs />}
             </main>
         </div>

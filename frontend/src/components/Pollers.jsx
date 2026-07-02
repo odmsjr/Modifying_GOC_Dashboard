@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import "../Pollers.css";
 
-// 🎯 Pull securely from Vite .env environment variables (Fallback to local Express port 5000)
+// 🎯 Pull securely from Vite .env environment variables (Fallback to local Express port 3000)
 const BASE_API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
 export default function Pollers() {

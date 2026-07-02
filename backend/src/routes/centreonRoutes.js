@@ -7,8 +7,15 @@ router.get('/hosts/status/all', centreonController.getHostStatus);
 router.get('/hosts', centreonController.getAllHosts);
 router.get('/hosts/:id', centreonController.getHostById);
 
+// Poller endpoints
+router.get('/pollers', centreonController.getAllPollers);
+router.get('/pollers/:pollerId/hosts', centreonController.getPollerHosts);
+router.get('/pollers/:pollerId/services/summary', centreonController.getPollerServiceSummary);
+
+// Temporary test endpoint for real Centreon poller names
+router.get('/test-monitoring-servers', centreonController.testMonitoringServers);
+
 // Service endpoints
-// router.get('/services/problems/summary', centreonController.getProblemServicesSummary);
 router.get('/services/search', centreonController.searchServicesGlobally);
 router.get('/services/status/summary', centreonController.getServiceStatusSummary);
 router.get('/services', centreonController.getAllServices);
