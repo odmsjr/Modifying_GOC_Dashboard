@@ -28,13 +28,32 @@ export default function Dashboard() {
     });
     const [isLoadingServices, setIsLoadingServices] = useState(false);
 
-    // --- DASHBOARD COUNTS ---
+    // --- DASHBOARD PAGE-BASED COUNTS ---
     const [counts, setCounts] = useState({
         allActiveIssues: 0,
         critical: 0,
         warning: 0,
         unknown: 0
     });
+
+    // --- DASHBOARD GLOBAL CACHED COUNTS ---
+    const [globalDashboardCounts, setGlobalDashboardCounts] = useState({
+        allActiveIssues: null,
+        critical: null,
+        warning: null,
+        unknown: null
+    });
+
+    const [isRefreshingGlobalSummary, setIsRefreshingGlobalSummary] = useState(false);
+
+    const [dashboardGlobalServices, setDashboardGlobalServices] = useState([]);
+    const [dashboardGlobalMeta, setDashboardGlobalMeta] = useState({
+    page: 1,
+    limit: 100,
+    total: 0,
+    totalPages: 1
+});
+const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState(false);
 
     const [cachedCritical, setCachedCritical] = useState([]);
     const [cachedWarning, setCachedWarning] = useState([]);
@@ -203,11 +222,121 @@ export default function Dashboard() {
     }, [filters.service]);
 
     // ============================================================
+    // GLOBAL DASHBOARD SUMMARY FETCH
+    // ============================================================
+    const fetchGlobalDashboardSummary = useCallback(async () => {
+        try {
+            const token = localStorage.getItem('centreon_auth_token');
+
+            const response = await fetch(
+                `${BASE_API_URL}/api/centreon/services/status/global-summary`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP Error ${response.status}`);
+            }
+
+            const payload = await response.json();
+
+            setIsRefreshingGlobalSummary(Boolean(payload.refreshing));
+
+            if (payload.counts && payload.cached) {
+                setGlobalDashboardCounts({
+                    allActiveIssues: payload.counts.allActiveIssues,
+                    critical: payload.counts.critical,
+                    warning: payload.counts.warning,
+                    unknown: payload.counts.unknown
+                });
+            }
+
+            if (payload.meta?.cacheRefreshing && !payload.meta?.cacheFresh) {
+                setTimeout(() => {
+                    fetchGlobalDashboardSummary();
+                }, 10000);
+            }
+
+        } catch (error) {
+            console.error("Error fetching global dashboard summary:", error);
+        }
+    }, []);
+
+    const fetchDashboardGlobalServiceList = useCallback(async (
+    type = 'all',
+    page = 1,
+    limit = 100
+) => {
+    try {
+        setIsLoadingDashboardGlobalList(true);
+
+        const token = localStorage.getItem('centreon_auth_token');
+
+        const response = await fetch(
+            `${BASE_API_URL}/api/centreon/services/status/global-summary/list?type=${type}&page=${page}&limit=${limit}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            }
+        );
+
+        if (!response.ok) {
+            throw new Error(`HTTP Error ${response.status}`);
+        }
+
+        const payload = await response.json();
+
+        setIsRefreshingGlobalSummary(Boolean(payload.refreshing));
+
+        if (payload.counts && payload.cached) {
+            setGlobalDashboardCounts({
+                allActiveIssues: payload.counts.allActiveIssues,
+                critical: payload.counts.critical,
+                warning: payload.counts.warning,
+                unknown: payload.counts.unknown
+            });
+        }
+
+        setDashboardGlobalServices(payload.data?.result || []);
+        setDashboardGlobalMeta(payload.meta || {
+            page,
+            limit,
+            total: 0,
+            totalPages: 1
+        });
+
+        if (payload.meta?.cacheRefreshing && !payload.meta?.cacheFresh) {
+            setTimeout(() => {
+                fetchDashboardGlobalServiceList(type, page, limit);
+            }, 10000);
+        }
+
+    } catch (error) {
+        console.error("Error fetching dashboard global service list:", error);
+        setDashboardGlobalServices([]);
+        setDashboardGlobalMeta({
+            page,
+            limit,
+            total: 0,
+            totalPages: 1
+        });
+    } finally {
+        setIsLoadingDashboardGlobalList(false);
+    }
+}, []);
+
+    // ============================================================
     // DASHBOARD FETCH
     // ============================================================
     const refreshDashboardData = useCallback(async () => {
         try {
             setIsLoadingServices(true);
+
+            fetchGlobalDashboardSummary();
 
             const token = localStorage.getItem('centreon_auth_token');
 
@@ -295,7 +424,13 @@ export default function Dashboard() {
         } finally {
             setIsLoadingServices(false);
         }
-    }, [debouncedHostSearch, debouncedServiceSearch, servicePage, serviceLimit]);
+    }, [
+        debouncedHostSearch,
+        debouncedServiceSearch,
+        servicePage,
+        serviceLimit,
+        fetchGlobalDashboardSummary
+    ]);
 
     // ============================================================
     // POLLERS FETCH
@@ -517,13 +652,23 @@ export default function Dashboard() {
     // MANUAL REFRESH
     // ============================================================
     const handleGlobalManualRefresh = () => {
-        refreshDashboardData();
-        fetchPollersRoster();
+    refreshDashboardData();
+    fetchGlobalDashboardSummary();
+    fetchPollersRoster();
 
-        if (selectedPollerId) {
-            fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
-        }
-    };
+    if (
+        location.pathname === '/dashboard' &&
+        filters.poller === 'all' &&
+        !debouncedHostSearch &&
+        !debouncedServiceSearch
+    ) {
+        fetchDashboardGlobalServiceList(currentTableType, servicePage, serviceLimit);
+    }
+
+    if (selectedPollerId) {
+        fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
+    }
+};
 
     // ============================================================
     // LIFECYCLE
@@ -537,10 +682,12 @@ export default function Dashboard() {
         }
 
         refreshDashboardData();
+        fetchGlobalDashboardSummary();
         fetchPollersRoster();
 
         const heartbeat = setInterval(() => {
             refreshDashboardData();
+            fetchGlobalDashboardSummary();
             fetchPollersRoster();
 
             if (selectedPollerId) {
@@ -551,6 +698,7 @@ export default function Dashboard() {
         return () => clearInterval(heartbeat);
     }, [
         refreshDashboardData,
+        fetchGlobalDashboardSummary,
         fetchPollersRoster,
         fetchPollerHosts,
         selectedPollerId,
@@ -575,6 +723,32 @@ export default function Dashboard() {
         return 'all';
     }, [location.pathname, filters.poller, selectedPoller]);
 
+    const dashboardGlobalListMode = useMemo(() => {
+    return (
+        location.pathname === '/dashboard' &&
+        filters.poller === 'all' &&
+        !debouncedHostSearch &&
+        !debouncedServiceSearch
+    );
+}, [
+    location.pathname,
+    filters.poller,
+    debouncedHostSearch,
+    debouncedServiceSearch
+]);
+
+useEffect(() => {
+    if (dashboardGlobalListMode) {
+        fetchDashboardGlobalServiceList(currentTableType, servicePage, serviceLimit);
+    }
+}, [
+    dashboardGlobalListMode,
+    currentTableType,
+    servicePage,
+    serviceLimit,
+    fetchDashboardGlobalServiceList
+]);
+
     const filteredPollers = useMemo(() => {
         const search = pollerSearch.toLowerCase().trim();
 
@@ -588,6 +762,15 @@ export default function Dashboard() {
     const displayCounts = useMemo(() => {
         if (location.pathname === '/pollers' && selectedPollerId) {
             return pollerServiceCounts;
+        }
+
+        if (location.pathname === '/dashboard' && activePollerContext === 'all') {
+            return {
+                allActiveIssues: globalDashboardCounts.allActiveIssues ?? counts.allActiveIssues,
+                critical: globalDashboardCounts.critical ?? counts.critical,
+                warning: globalDashboardCounts.warning ?? counts.warning,
+                unknown: globalDashboardCounts.unknown ?? counts.unknown
+            };
         }
 
         if (activePollerContext !== 'all') {
@@ -609,6 +792,7 @@ export default function Dashboard() {
         selectedPollerId,
         pollerServiceCounts,
         activePollerContext,
+        globalDashboardCounts,
         counts,
         cachedCritical,
         cachedWarning,
@@ -669,6 +853,18 @@ export default function Dashboard() {
         filters
     ]);
 
+    const dashboardTableServices = useMemo(() => {
+    if (dashboardGlobalListMode) {
+        return dashboardGlobalServices;
+    }
+
+    return filteredServices;
+}, [
+    dashboardGlobalListMode,
+    dashboardGlobalServices,
+    filteredServices
+]);
+
     const filteredPollerServices = useMemo(() => {
         if (currentTableType === 'all') return pollerServices;
         if (currentTableType === 'critical') return pollerServices.filter(service => service.statusCode === 2);
@@ -681,8 +877,17 @@ export default function Dashboard() {
     // PAGINATION HELPERS
     // ============================================================
     const totalPages = useMemo(() => {
-        return Math.max(1, Math.ceil((serviceMeta.total || 0) / serviceLimit));
-    }, [serviceMeta.total, serviceLimit]);
+    if (dashboardGlobalListMode) {
+        return Math.max(1, dashboardGlobalMeta.totalPages || 1);
+    }
+
+    return Math.max(1, Math.ceil((serviceMeta.total || 0) / serviceLimit));
+}, [
+    dashboardGlobalListMode,
+    dashboardGlobalMeta.totalPages,
+    serviceMeta.total,
+    serviceLimit
+]);
 
     const visiblePageNumbers = useMemo(() => {
         const pages = [];
@@ -800,7 +1005,10 @@ export default function Dashboard() {
                             className={`stat-card all ${currentTableType === 'all' ? 'active' : ''}`}
                             onClick={() => {
                                 setCurrentTableType('all');
-                                if (location.pathname === '/dashboard') setShowAllStatusesForPoller(true);
+                                if (location.pathname === '/dashboard') {
+                                    setServicePage(1);
+                                    setShowAllStatusesForPoller(true);
+                                }
                             }}
                         >
                             <div className="stat-number">{displayCounts.allActiveIssues ?? '-'}</div>
@@ -811,7 +1019,10 @@ export default function Dashboard() {
                             className={`stat-card critical ${currentTableType === 'critical' ? 'active' : ''}`}
                             onClick={() => {
                                 setCurrentTableType('critical');
-                                if (location.pathname === '/dashboard') setShowAllStatusesForPoller(false);
+                                if (location.pathname === '/dashboard') {
+                                    setServicePage(1);
+                                    setShowAllStatusesForPoller(false);
+                                }
                             }}
                         >
                             <div className="stat-number">{displayCounts.critical ?? '-'}</div>
@@ -822,7 +1033,10 @@ export default function Dashboard() {
                             className={`stat-card warning ${currentTableType === 'warning' ? 'active' : ''}`}
                             onClick={() => {
                                 setCurrentTableType('warning');
-                                if (location.pathname === '/dashboard') setShowAllStatusesForPoller(false);
+                                if (location.pathname === '/dashboard') {
+                                    setServicePage(1);
+                                    setShowAllStatusesForPoller(false);
+                                }
                             }}
                         >
                             <div className="stat-number">{displayCounts.warning ?? '-'}</div>
@@ -833,7 +1047,10 @@ export default function Dashboard() {
                             className={`stat-card unknown ${currentTableType === 'unknown' ? 'active' : ''}`}
                             onClick={() => {
                                 setCurrentTableType('unknown');
-                                if (location.pathname === '/dashboard') setShowAllStatusesForPoller(false);
+                                if (location.pathname === '/dashboard') {
+                                    setServicePage(1);
+                                    setShowAllStatusesForPoller(false);
+                                }
                             }}
                         >
                             <div className="stat-number">{displayCounts.unknown ?? '-'}</div>
@@ -898,8 +1115,20 @@ export default function Dashboard() {
                                         {isSearchMode ? 'Search Results' : 'Active Exceptions'}
                                     </h2>
                                     <span className="service-count">
-                                        {isLoadingServices ? 'Loading...' : `${filteredServices.length} Targets`}
-                                    </span>
+    {
+        isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)
+            ? 'Loading...'
+            : dashboardGlobalListMode
+                ? `${dashboardTableServices.length} of ${dashboardGlobalMeta.total || 0} Targets`
+                : `${dashboardTableServices.length} Targets`
+    }
+
+    {dashboardGlobalListMode && (
+        <>
+            {' '}| Global cache {isRefreshingGlobalSummary ? 'refreshing...' : 'cached'}
+        </>
+    )}
+</span>
                                 </div>
                             </div>
 
@@ -916,7 +1145,7 @@ export default function Dashboard() {
                                     </thead>
 
                                     <tbody>
-                                        {filteredServices.length === 0 ? (
+                                        {dashboardTableServices.length === 0 ? (
                                             <tr>
                                                 <td colSpan="5" className="loading-cell">
                                                     {isLoadingServices
@@ -925,7 +1154,7 @@ export default function Dashboard() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            filteredServices.map((service, idx) => (
+                                            dashboardTableServices.map((service, idx) => (
                                                 <tr key={service.id || idx}>
                                                     <td className="host-name">
                                                         {service.host?.name || service.host?.display_name || 'N/A'}
@@ -1006,7 +1235,7 @@ export default function Dashboard() {
 
                                 <div>
                                     Page {servicePage} of {totalPages}
-                                    {' '}| Total Services: {serviceMeta.total || 0}
+{' '}| Total Services: {dashboardGlobalListMode ? (dashboardGlobalMeta.total || 0) : (serviceMeta.total || 0)}
                                 </div>
 
                                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>

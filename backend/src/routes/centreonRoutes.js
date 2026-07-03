@@ -12,12 +12,17 @@ router.get('/pollers', centreonController.getAllPollers);
 router.get('/pollers/:pollerId/hosts', centreonController.getPollerHosts);
 router.get('/pollers/:pollerId/services/summary', centreonController.getPollerServiceSummary);
 
+// Acknowledgement endpoint
+router.post('/acknowledge', centreonController.acknowledgeService);
+
 // Temporary test endpoint for real Centreon poller names
 router.get('/test-monitoring-servers', centreonController.testMonitoringServers);
 
 // Service endpoints
 router.get('/services/search', centreonController.searchServicesGlobally);
 router.get('/services/status/summary', centreonController.getServiceStatusSummary);
+router.get('/services/status/global-summary', centreonController.getGlobalServiceStatusSummary);
+router.get('/services/status/global-summary/list', centreonController.getGlobalServiceStatusSummaryList);
 router.get('/services', centreonController.getAllServices);
 router.get('/services/host/:hostId', centreonController.getServicesByHost);
 

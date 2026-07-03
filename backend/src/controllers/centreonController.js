@@ -1,5 +1,6 @@
 // backend/src/controllers/centreonController.js
 const centreonAxios = require("../config/axiosCentreon");
+const db = require("../config/db");
 
 // ============================================================
 // IN-MEMORY CACHE
@@ -13,6 +14,25 @@ let pollerHostCountCache = {
 };
 
 const POLLER_HOST_COUNT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+let dashboardGlobalSummaryCache = {
+    counts: {
+        allActiveIssues: null,
+        critical: null,
+        warning: null,
+        unknown: null
+    },
+    services: {
+        critical: [],
+        warning: [],
+        unknown: []
+    },
+    updatedAt: null,
+    isRefreshing: false,
+    lastError: null
+};
+
+const DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // ============================================================
 // HELPERS
@@ -137,6 +157,63 @@ const deriveServerType = (server) => {
     }
 
     return "N/A";
+};
+
+const getRequestUserName = (req) => {
+    return (
+        req.body?.action_by ||
+        req.body?.actionBy ||
+        req.headers["x-user-name"] ||
+        "Dashboard User"
+    );
+};
+
+const getOrCreateAuditServerId = async (hostName) => {
+    const safeHostName = hostName || "Unknown Host";
+
+    const [existingRows] = await db.execute(
+        `SELECT id FROM servers WHERE hostname = ? LIMIT 1`,
+        [safeHostName]
+    );
+
+    if (existingRows.length > 0) {
+        return existingRows[0].id;
+    }
+
+    const [insertResult] = await db.execute(
+        `INSERT INTO servers (hostname) VALUES (?)`,
+        [safeHostName]
+    );
+
+    return insertResult.insertId;
+};
+
+const writeAuditLog = async ({
+    host,
+    service,
+    logType,
+    oldStatus,
+    newStatus,
+    actionBy,
+    message
+}) => {
+    const serverId = await getOrCreateAuditServerId(host);
+
+    const query = `
+        INSERT INTO server_activity_log
+        (server_id, incident_id, log_type, old_status, new_status, action_by, message)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    await db.execute(query, [
+        serverId,
+        service || null,
+        logType,
+        oldStatus || null,
+        newStatus || null,
+        actionBy || "Dashboard User",
+        message || null
+    ]);
 };
 
 /**
@@ -355,6 +432,110 @@ const refreshPollerHostCountCache = async (req, monitoringServerMap) => {
         });
 
         pollerHostCountCache.isRefreshing = false;
+    }
+};
+
+const refreshDashboardGlobalSummaryCache = async (req) => {
+    if (dashboardGlobalSummaryCache.isRefreshing) {
+        return;
+    }
+
+    dashboardGlobalSummaryCache.isRefreshing = true;
+
+    try {
+        const limit = 1000;
+        let page = 1;
+        let counted = 0;
+        let totalFromCentreon = 0;
+
+        const criticalServices = [];
+        const warningServices = [];
+        const unknownServices = [];
+
+        while (true) {
+            const endpoint = buildServicesEndpoint({
+                page,
+                limit
+            });
+
+            console.log("Centreon dashboard global summary cache URL:", endpoint);
+
+            const response = await centreonAxios.get(endpoint, {
+                headers: getCentreonHeaders(req)
+            });
+
+            const services = response.data?.result || [];
+            const normalizedServices = services.map(normalizeService);
+
+            normalizedServices.forEach((service) => {
+                if (service.statusCode === 2) {
+                    criticalServices.push(service);
+                } else if (service.statusCode === 1) {
+                    warningServices.push(service);
+                } else if (service.statusCode === 3) {
+                    unknownServices.push(service);
+                }
+            });
+
+            totalFromCentreon =
+                response.data?.meta?.total ||
+                services.length;
+
+            counted += services.length;
+
+            if (counted >= totalFromCentreon || services.length === 0) {
+                break;
+            }
+
+            page += 1;
+        }
+
+        const allActiveIssues =
+            criticalServices.length +
+            warningServices.length +
+            unknownServices.length;
+
+        dashboardGlobalSummaryCache = {
+            counts: {
+                allActiveIssues,
+                critical: criticalServices.length,
+                warning: warningServices.length,
+                unknown: unknownServices.length
+            },
+            services: {
+                critical: criticalServices,
+                warning: warningServices,
+                unknown: unknownServices
+            },
+            updatedAt: Date.now(),
+            isRefreshing: false,
+            lastError: null
+        };
+
+        console.log("Dashboard global summary cache refreshed:", {
+            totalServicesScanned: counted,
+            allActiveIssues,
+            critical: criticalServices.length,
+            warning: warningServices.length,
+            unknown: unknownServices.length
+        });
+
+    } catch (error) {
+        console.error("Failed refreshing dashboard global summary cache:", {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message
+        });
+
+        dashboardGlobalSummaryCache = {
+            ...dashboardGlobalSummaryCache,
+            isRefreshing: false,
+            lastError: {
+                status: error.response?.status,
+                data: error.response?.data,
+                message: error.message
+            }
+        };
     }
 };
 
@@ -993,6 +1174,392 @@ const getServiceStatusSummary = async (req, res, next) => {
     }
 };
 
+const getGlobalServiceStatusSummary = async (req, res, next) => {
+    try {
+        const now = Date.now();
+
+        const hasCachedCounts =
+            dashboardGlobalSummaryCache.updatedAt &&
+            dashboardGlobalSummaryCache.counts.allActiveIssues !== null;
+
+        const hasFreshCache =
+            dashboardGlobalSummaryCache.updatedAt &&
+            now - dashboardGlobalSummaryCache.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
+
+        if (!hasFreshCache && !dashboardGlobalSummaryCache.isRefreshing) {
+            refreshDashboardGlobalSummaryCache(req);
+        }
+
+        return res.json({
+            success: true,
+            cached: Boolean(hasCachedCounts),
+            refreshing: dashboardGlobalSummaryCache.isRefreshing,
+            counts: dashboardGlobalSummaryCache.counts,
+            services: dashboardGlobalSummaryCache.services,
+            meta: {
+                cacheLoaded: Boolean(hasCachedCounts),
+                cacheFresh: Boolean(hasFreshCache),
+                cacheRefreshing: dashboardGlobalSummaryCache.isRefreshing,
+                cacheUpdatedAt: dashboardGlobalSummaryCache.updatedAt,
+                cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS,
+                lastError: dashboardGlobalSummaryCache.lastError
+            },
+            note: hasCachedCounts
+                ? "Global dashboard summary returned from cache. Cache refreshes in the background when stale."
+                : "Global dashboard summary cache is not ready yet. Refresh has started in the background."
+        });
+
+    } catch (error) {
+        return handleCentreonError(error, res, next);
+    }
+};
+
+const getGlobalServiceStatusSummaryList = async (req, res, next) => {
+    try {
+        const type = String(req.query.type || "all").toLowerCase();
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 100;
+
+        const now = Date.now();
+
+        const hasCachedCounts =
+            dashboardGlobalSummaryCache.updatedAt &&
+            dashboardGlobalSummaryCache.counts.allActiveIssues !== null;
+
+        const hasFreshCache =
+            dashboardGlobalSummaryCache.updatedAt &&
+            now - dashboardGlobalSummaryCache.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
+
+        // Start/refresh cache in the background if missing or stale.
+        if (!hasFreshCache && !dashboardGlobalSummaryCache.isRefreshing) {
+            refreshDashboardGlobalSummaryCache(req);
+        }
+
+        if (!hasCachedCounts) {
+            return res.json({
+                success: true,
+                cached: false,
+                refreshing: dashboardGlobalSummaryCache.isRefreshing,
+                type,
+                counts: dashboardGlobalSummaryCache.counts,
+                data: {
+                    result: []
+                },
+                meta: {
+                    page,
+                    limit,
+                    total: 0,
+                    totalPages: 1,
+                    cacheLoaded: false,
+                    cacheFresh: false,
+                    cacheRefreshing: dashboardGlobalSummaryCache.isRefreshing,
+                    cacheUpdatedAt: dashboardGlobalSummaryCache.updatedAt,
+                    note: "Global summary cache is not ready yet. Refresh has started in the background."
+                }
+            });
+        }
+
+        const criticalServices = dashboardGlobalSummaryCache.services.critical || [];
+        const warningServices = dashboardGlobalSummaryCache.services.warning || [];
+        const unknownServices = dashboardGlobalSummaryCache.services.unknown || [];
+
+        let selectedServices = [];
+
+        if (type === "critical") {
+            selectedServices = criticalServices;
+        } else if (type === "warning") {
+            selectedServices = warningServices;
+        } else if (type === "unknown") {
+            selectedServices = unknownServices;
+        } else {
+            selectedServices = [
+                ...criticalServices,
+                ...warningServices,
+                ...unknownServices
+            ];
+        }
+
+        const startIndex = (page - 1) * limit;
+        const pagedServices = selectedServices.slice(startIndex, startIndex + limit);
+
+        return res.json({
+            success: true,
+            cached: true,
+            refreshing: dashboardGlobalSummaryCache.isRefreshing,
+            type,
+            counts: dashboardGlobalSummaryCache.counts,
+            data: {
+                result: pagedServices
+            },
+            meta: {
+                page,
+                limit,
+                total: selectedServices.length,
+                totalPages: Math.max(1, Math.ceil(selectedServices.length / limit)),
+                cacheLoaded: true,
+                cacheFresh: Boolean(hasFreshCache),
+                cacheRefreshing: dashboardGlobalSummaryCache.isRefreshing,
+                cacheUpdatedAt: dashboardGlobalSummaryCache.updatedAt,
+                cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS,
+                note: hasFreshCache
+                    ? "Global summary list returned from fresh cache."
+                    : "Global summary list returned from stale cache while refresh runs in the background."
+            }
+        });
+
+    } catch (error) {
+        return handleCentreonError(error, res, next);
+    }
+};
+
+const resolveServiceResourceIds = async (req, targetHost, targetService) => {
+    // If frontend already sends IDs, no need to resolve.
+    if (
+        req.body.hostId !== undefined &&
+        req.body.hostId !== null &&
+        req.body.serviceId !== undefined &&
+        req.body.serviceId !== null
+    ) {
+        return {
+            hostId: Number(req.body.hostId),
+            serviceId: Number(req.body.serviceId)
+        };
+    }
+
+    const attempts = [];
+
+    const runSearch = async (label, searchObject) => {
+        try {
+            const endpoint = buildServicesEndpoint({
+                page: 1,
+                limit: 100,
+                search: searchObject
+            });
+
+            console.log(`Centreon resolve acknowledge resource [${label}]:`, endpoint);
+
+            const response = await centreonAxios.get(endpoint, {
+                headers: getCentreonHeaders(req)
+            });
+
+            const services = (response.data?.result || []).map(normalizeService);
+
+            attempts.push({
+                label,
+                success: true,
+                count: services.length
+            });
+
+            return services;
+
+        } catch (error) {
+            console.warn(`Resolve acknowledge search failed [${label}]`, {
+                status: error.response?.status,
+                data: error.response?.data,
+                message: error.message
+            });
+
+            attempts.push({
+                label,
+                success: false,
+                status: error.response?.status,
+                data: error.response?.data,
+                message: error.message
+            });
+
+            return [];
+        }
+    };
+
+    let candidates = [];
+
+    if (targetService) {
+        const serviceResults = await runSearch("service.description", {
+            "service.description": targetService
+        });
+
+        candidates.push(...serviceResults);
+    }
+
+    if (targetHost) {
+        const hostResults = await runSearch("host.name", {
+            "host.name": targetHost
+        });
+
+        candidates.push(...hostResults);
+    }
+
+    const merged = new Map();
+
+    candidates.forEach((service) => {
+        const key = service.id || `${service.host?.id}-${service.description}`;
+        merged.set(key, service);
+    });
+
+    candidates = Array.from(merged.values());
+
+    const hostLower = String(targetHost || "").toLowerCase();
+    const serviceLower = String(targetService || "").toLowerCase();
+
+    const exactMatch = candidates.find((item) => {
+        const itemHostName = String(item.host?.name || item.host?.display_name || "").toLowerCase();
+        const itemServiceName = String(item.description || item.display_name || "").toLowerCase();
+
+        return itemHostName === hostLower && itemServiceName === serviceLower;
+    });
+
+    const looseMatch = candidates.find((item) => {
+        const itemHostName = String(item.host?.name || item.host?.display_name || "").toLowerCase();
+        const itemServiceName = String(item.description || item.display_name || "").toLowerCase();
+
+        return itemHostName.includes(hostLower) && itemServiceName.includes(serviceLower);
+    });
+
+    const matchedService = exactMatch || looseMatch;
+
+    if (!matchedService?.id || !matchedService?.host?.id) {
+        const error = new Error("Unable to resolve Centreon host/service IDs for acknowledgement.");
+        error.debug = {
+            targetHost,
+            targetService,
+            attempts,
+            candidateCount: candidates.length
+        };
+        throw error;
+    }
+
+    return {
+        hostId: Number(matchedService.host.id),
+        serviceId: Number(matchedService.id)
+    };
+};
+
+const acknowledgeService = async (req, res, next) => {
+    const {
+        host,
+        service,
+        hostName,
+        serviceDescription,
+        comment
+    } = req.body;
+
+    const targetHost = host || hostName;
+    const targetService = service || serviceDescription;
+    const actionBy = getRequestUserName(req);
+
+    if (!targetHost || !targetService) {
+        return res.status(400).json({
+            success: false,
+            message: "host and service are required."
+        });
+    }
+
+    const acknowledgeComment =
+        comment ||
+        `Acknowledged from GOC Dashboard by ${actionBy}`;
+
+    let resolvedResource = null;
+
+    try {
+        const { hostId, serviceId } = await resolveServiceResourceIds(
+            req,
+            targetHost,
+            targetService
+        );
+
+        resolvedResource = {
+            hostId,
+            serviceId
+        };
+
+        const payload = {
+            resources: [
+                {
+                    type: "service",
+                    id: serviceId,
+                    parent: {
+                        id: hostId
+                    }
+                }
+            ],
+            acknowledgement: {
+                comment: acknowledgeComment
+            }
+        };
+
+        console.log("Centreon acknowledge payload:", payload);
+
+        const centreonResponse = await centreonAxios.post(
+            "/monitoring/resources/acknowledge",
+            payload,
+            {
+                headers: getCentreonHeaders(req)
+            }
+        );
+
+        // Do not let audit-log DB failure reverse a successful Centreon acknowledgement.
+        try {
+            await writeAuditLog({
+                host: targetHost,
+                service: targetService,
+                logType: "ACKNOWLEDGEMENT",
+                oldStatus: null,
+                newStatus: "ACKNOWLEDGED",
+                actionBy,
+                message: acknowledgeComment
+            });
+        } catch (logError) {
+            console.error("Acknowledgement succeeded but audit log failed:", {
+                message: logError.message,
+                code: logError.code,
+                sqlMessage: logError.sqlMessage
+            });
+        }
+
+        return res.json({
+            success: true,
+            message: "Service acknowledged successfully.",
+            auditLogged: true,
+            resource: {
+                host: targetHost,
+                service: targetService,
+                hostId,
+                serviceId
+            },
+            centreon: centreonResponse.data
+        });
+
+    } catch (error) {
+        console.error("Acknowledge failed:", {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message,
+            debug: error.debug,
+            resolvedResource
+        });
+
+        try {
+            await writeAuditLog({
+                host: targetHost,
+                service: targetService,
+                logType: "ACKNOWLEDGEMENT_FAILED",
+                oldStatus: null,
+                newStatus: "FAILED",
+                actionBy,
+                message: `Failed to acknowledge ${targetHost} / ${targetService}: ${error.response?.data?.message || error.message}`
+            });
+        } catch (logError) {
+            console.error("Failed to write failed-ack audit log:", {
+                message: logError.message,
+                code: logError.code,
+                sqlMessage: logError.sqlMessage
+            });
+        }
+
+        return handleCentreonError(error, res, next);
+    }
+};
+
 // ============================================================
 // EXPORTS
 // ============================================================
@@ -1008,5 +1575,8 @@ module.exports = {
     getServicesByHost,
     searchServicesGlobally,
     getServiceStatusSummary,
+    getGlobalServiceStatusSummary,
+    getGlobalServiceStatusSummaryList,
+    acknowledgeService,
     testMonitoringServers
 };
