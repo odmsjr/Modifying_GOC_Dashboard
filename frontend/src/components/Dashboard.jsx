@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Sla from "./SLA";
 import Logs from "./Logs";
@@ -48,12 +48,15 @@ export default function Dashboard() {
 
     const [dashboardGlobalServices, setDashboardGlobalServices] = useState([]);
     const [dashboardGlobalMeta, setDashboardGlobalMeta] = useState({
-    page: 1,
-    limit: 100,
-    total: 0,
-    totalPages: 1
-});
-const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState(false);
+        page: 1,
+        limit: 100,
+        total: 0,
+        totalPages: 1
+    });
+    const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState(false);
+
+    // Prevent stale search requests from overwriting newer results.
+    const dashboardGlobalListRequestIdRef = useRef(0);
 
     const [cachedCritical, setCachedCritical] = useState([]);
     const [cachedWarning, setCachedWarning] = useState([]);
@@ -224,7 +227,7 @@ const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState
     // ============================================================
     // GLOBAL DASHBOARD SUMMARY FETCH
     // ============================================================
-    const fetchGlobalDashboardSummary = useCallback(async () => {
+    const fetchGlobalDashboardSummary = useCallback(async (shouldUpdateCards = true) => {
         try {
             const token = localStorage.getItem('centreon_auth_token');
 
@@ -245,7 +248,7 @@ const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState
 
             setIsRefreshingGlobalSummary(Boolean(payload.refreshing));
 
-            if (payload.counts && payload.cached) {
+            if (shouldUpdateCards && payload.counts && payload.cached) {
                 setGlobalDashboardCounts({
                     allActiveIssues: payload.counts.allActiveIssues,
                     critical: payload.counts.critical,
@@ -256,7 +259,7 @@ const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState
 
             if (payload.meta?.cacheRefreshing && !payload.meta?.cacheFresh) {
                 setTimeout(() => {
-                    fetchGlobalDashboardSummary();
+                    fetchGlobalDashboardSummary(shouldUpdateCards);
                 }, 10000);
             }
 
@@ -266,77 +269,141 @@ const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState
     }, []);
 
     const fetchDashboardGlobalServiceList = useCallback(async (
-    type = 'all',
-    page = 1,
-    limit = 100
-) => {
-    try {
-        setIsLoadingDashboardGlobalList(true);
+        type = 'all',
+        page = 1,
+        limit = 100,
+        hostSearch = '',
+        serviceSearch = ''
+    ) => {
+        const requestId = dashboardGlobalListRequestIdRef.current + 1;
+        dashboardGlobalListRequestIdRef.current = requestId;
 
-        const token = localStorage.getItem('centreon_auth_token');
+        const isLatestRequest = () => dashboardGlobalListRequestIdRef.current === requestId;
 
-        const response = await fetch(
-            `${BASE_API_URL}/api/centreon/services/status/global-summary/list?type=${type}&page=${page}&limit=${limit}`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`
+        try {
+            setIsLoadingDashboardGlobalList(true);
+
+            const token = localStorage.getItem('centreon_auth_token');
+
+            const params = new URLSearchParams({
+                type,
+                page: String(page),
+                limit: String(limit)
+            });
+
+            if (hostSearch) {
+                params.set('host', hostSearch);
+            }
+
+            if (serviceSearch) {
+                params.set('service', serviceSearch);
+            }
+
+            const response = await fetch(
+                `${BASE_API_URL}/api/centreon/services/status/global-summary/list?${params.toString()}`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP Error ${response.status}`);
+            }
+
+            const payload = await response.json();
+
+            // Ignore stale responses, such as older search returning after newer clear/search.
+            if (!isLatestRequest()) {
+                return;
+            }
+
+            setIsRefreshingGlobalSummary(Boolean(payload.refreshing));
+
+            if (payload.cached) {
+                const hasSearch = Boolean(hostSearch || serviceSearch);
+
+                const countSource =
+                    hasSearch && payload.filteredCounts
+                        ? payload.filteredCounts
+                        : payload.counts;
+
+                if (countSource) {
+                    setGlobalDashboardCounts({
+                        allActiveIssues: countSource.allActiveIssues,
+                        critical: countSource.critical,
+                        warning: countSource.warning,
+                        unknown: countSource.unknown
+                    });
                 }
             }
-        );
 
-        if (!response.ok) {
-            throw new Error(`HTTP Error ${response.status}`);
-        }
-
-        const payload = await response.json();
-
-        setIsRefreshingGlobalSummary(Boolean(payload.refreshing));
-
-        if (payload.counts && payload.cached) {
-            setGlobalDashboardCounts({
-                allActiveIssues: payload.counts.allActiveIssues,
-                critical: payload.counts.critical,
-                warning: payload.counts.warning,
-                unknown: payload.counts.unknown
+            setDashboardGlobalServices(payload.data?.result || []);
+            setDashboardGlobalMeta(payload.meta || {
+                page,
+                limit,
+                total: 0,
+                totalPages: 1
             });
+
+            if (payload.meta?.cacheRefreshing && !payload.meta?.cacheFresh) {
+                setTimeout(() => {
+                    if (isLatestRequest()) {
+                        fetchDashboardGlobalServiceList(
+                            type,
+                            page,
+                            limit,
+                            hostSearch,
+                            serviceSearch
+                        );
+                    }
+                }, 10000);
+            }
+
+        } catch (error) {
+            if (!isLatestRequest()) {
+                return;
+            }
+
+            console.error("Error fetching dashboard global service list:", error);
+
+            setDashboardGlobalServices([]);
+            setDashboardGlobalMeta({
+                page,
+                limit,
+                total: 0,
+                totalPages: 1
+            });
+
+        } finally {
+            if (isLatestRequest()) {
+                setIsLoadingDashboardGlobalList(false);
+            }
         }
-
-        setDashboardGlobalServices(payload.data?.result || []);
-        setDashboardGlobalMeta(payload.meta || {
-            page,
-            limit,
-            total: 0,
-            totalPages: 1
-        });
-
-        if (payload.meta?.cacheRefreshing && !payload.meta?.cacheFresh) {
-            setTimeout(() => {
-                fetchDashboardGlobalServiceList(type, page, limit);
-            }, 10000);
-        }
-
-    } catch (error) {
-        console.error("Error fetching dashboard global service list:", error);
-        setDashboardGlobalServices([]);
-        setDashboardGlobalMeta({
-            page,
-            limit,
-            total: 0,
-            totalPages: 1
-        });
-    } finally {
-        setIsLoadingDashboardGlobalList(false);
-    }
-}, []);
+    }, []);
 
     // ============================================================
     // DASHBOARD FETCH
     // ============================================================
     const refreshDashboardData = useCallback(async () => {
-        try {
-            setIsLoadingServices(true);
+        const usingDashboardGlobalCache =
+            location.pathname === '/dashboard' &&
+            filters.poller === 'all';
 
-            fetchGlobalDashboardSummary();
+        const hasDashboardSearch = Boolean(debouncedHostSearch || debouncedServiceSearch);
+
+        try {
+            if (usingDashboardGlobalCache) {
+                setIsLoadingServices(false);
+            } else {
+                setIsLoadingServices(true);
+            }
+
+            // Do not let global summary overwrite filtered search card counts.
+            fetchGlobalDashboardSummary(
+                !(usingDashboardGlobalCache && hasDashboardSearch)
+            );
 
             const token = localStorage.getItem('centreon_auth_token');
 
@@ -346,6 +413,36 @@ const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState
                     'Content-Type': 'application/json'
                 }
             };
+
+            // If Dashboard is using global cache mode, do not run old service summary/search.
+            // This avoids UI flicker/twitching because the global list endpoint controls the table.
+            if (usingDashboardGlobalCache) {
+                const hostsRes = await fetch(
+                    `${BASE_API_URL}/api/centreon/hosts/status/all`,
+                    fetchOptions
+                );
+
+                if (!hostsRes.ok) {
+                    throw new Error("Hosts API payload error");
+                }
+
+                const hostsPayload = await hostsRes.json();
+                const rawHosts = hostsPayload.data?.result || [];
+                const normalizedHosts = rawHosts.map(normalizeHost);
+
+                const uniquePollers = [
+                    ...new Set(
+                        normalizedHosts
+                            .map(h => h.poller_name)
+                            .filter(Boolean)
+                    )
+                ];
+
+                setPollerDropdownList(uniquePollers);
+                setLastUpdated(new Date().toLocaleTimeString());
+
+                return;
+            }
 
             const hasGlobalSearch = Boolean(debouncedHostSearch || debouncedServiceSearch);
 
@@ -422,9 +519,13 @@ const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState
         } catch (e) {
             console.error("Failed syncing infrastructure metrics:", e);
         } finally {
-            setIsLoadingServices(false);
+            if (!usingDashboardGlobalCache) {
+                setIsLoadingServices(false);
+            }
         }
     }, [
+        location.pathname,
+        filters.poller,
         debouncedHostSearch,
         debouncedServiceSearch,
         servicePage,
@@ -652,23 +753,32 @@ const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState
     // MANUAL REFRESH
     // ============================================================
     const handleGlobalManualRefresh = () => {
-    refreshDashboardData();
-    fetchGlobalDashboardSummary();
-    fetchPollersRoster();
+        const suppressSummaryCardUpdate =
+            location.pathname === '/dashboard' &&
+            filters.poller === 'all' &&
+            Boolean(debouncedHostSearch || debouncedServiceSearch);
 
-    if (
-        location.pathname === '/dashboard' &&
-        filters.poller === 'all' &&
-        !debouncedHostSearch &&
-        !debouncedServiceSearch
-    ) {
-        fetchDashboardGlobalServiceList(currentTableType, servicePage, serviceLimit);
-    }
+        refreshDashboardData();
+        fetchGlobalDashboardSummary(!suppressSummaryCardUpdate);
+        fetchPollersRoster();
 
-    if (selectedPollerId) {
-        fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
-    }
-};
+        if (
+            location.pathname === '/dashboard' &&
+            filters.poller === 'all'
+        ) {
+            fetchDashboardGlobalServiceList(
+                currentTableType,
+                servicePage,
+                serviceLimit,
+                debouncedHostSearch,
+                debouncedServiceSearch
+            );
+        }
+
+        if (selectedPollerId) {
+            fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
+        }
+    };
 
     // ============================================================
     // LIFECYCLE
@@ -681,13 +791,23 @@ const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState
             return;
         }
 
+        const suppressSummaryCardUpdate =
+            location.pathname === '/dashboard' &&
+            filters.poller === 'all' &&
+            Boolean(debouncedHostSearch || debouncedServiceSearch);
+
         refreshDashboardData();
-        fetchGlobalDashboardSummary();
+        fetchGlobalDashboardSummary(!suppressSummaryCardUpdate);
         fetchPollersRoster();
 
         const heartbeat = setInterval(() => {
+            const heartbeatSuppressSummaryCardUpdate =
+                location.pathname === '/dashboard' &&
+                filters.poller === 'all' &&
+                Boolean(debouncedHostSearch || debouncedServiceSearch);
+
             refreshDashboardData();
-            fetchGlobalDashboardSummary();
+            fetchGlobalDashboardSummary(!heartbeatSuppressSummaryCardUpdate);
             fetchPollersRoster();
 
             if (selectedPollerId) {
@@ -705,6 +825,9 @@ const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState
         pollerHostPage,
         pollerHostLimit,
         location.pathname,
+        filters.poller,
+        debouncedHostSearch,
+        debouncedServiceSearch,
         navigate
     ]);
 
@@ -724,30 +847,41 @@ const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState
     }, [location.pathname, filters.poller, selectedPoller]);
 
     const dashboardGlobalListMode = useMemo(() => {
-    return (
-        location.pathname === '/dashboard' &&
-        filters.poller === 'all' &&
-        !debouncedHostSearch &&
-        !debouncedServiceSearch
-    );
-}, [
-    location.pathname,
-    filters.poller,
-    debouncedHostSearch,
-    debouncedServiceSearch
-]);
+        return (
+            location.pathname === '/dashboard' &&
+            filters.poller === 'all'
+        );
+    }, [
+        location.pathname,
+        filters.poller
+    ]);
 
-useEffect(() => {
-    if (dashboardGlobalListMode) {
-        fetchDashboardGlobalServiceList(currentTableType, servicePage, serviceLimit);
-    }
-}, [
-    dashboardGlobalListMode,
-    currentTableType,
-    servicePage,
-    serviceLimit,
-    fetchDashboardGlobalServiceList
-]);
+    useEffect(() => {
+        if (!dashboardGlobalListMode) {
+            dashboardGlobalListRequestIdRef.current += 1;
+            setIsLoadingDashboardGlobalList(false);
+        }
+    }, [dashboardGlobalListMode]);
+
+    useEffect(() => {
+        if (dashboardGlobalListMode) {
+            fetchDashboardGlobalServiceList(
+                currentTableType,
+                servicePage,
+                serviceLimit,
+                debouncedHostSearch,
+                debouncedServiceSearch
+            );
+        }
+    }, [
+        dashboardGlobalListMode,
+        currentTableType,
+        servicePage,
+        serviceLimit,
+        debouncedHostSearch,
+        debouncedServiceSearch,
+        fetchDashboardGlobalServiceList
+    ]);
 
     const filteredPollers = useMemo(() => {
         const search = pollerSearch.toLowerCase().trim();
@@ -854,16 +988,16 @@ useEffect(() => {
     ]);
 
     const dashboardTableServices = useMemo(() => {
-    if (dashboardGlobalListMode) {
-        return dashboardGlobalServices;
-    }
+        if (dashboardGlobalListMode) {
+            return dashboardGlobalServices;
+        }
 
-    return filteredServices;
-}, [
-    dashboardGlobalListMode,
-    dashboardGlobalServices,
-    filteredServices
-]);
+        return filteredServices;
+    }, [
+        dashboardGlobalListMode,
+        dashboardGlobalServices,
+        filteredServices
+    ]);
 
     const filteredPollerServices = useMemo(() => {
         if (currentTableType === 'all') return pollerServices;
@@ -877,17 +1011,17 @@ useEffect(() => {
     // PAGINATION HELPERS
     // ============================================================
     const totalPages = useMemo(() => {
-    if (dashboardGlobalListMode) {
-        return Math.max(1, dashboardGlobalMeta.totalPages || 1);
-    }
+        if (dashboardGlobalListMode) {
+            return Math.max(1, dashboardGlobalMeta.totalPages || 1);
+        }
 
-    return Math.max(1, Math.ceil((serviceMeta.total || 0) / serviceLimit));
-}, [
-    dashboardGlobalListMode,
-    dashboardGlobalMeta.totalPages,
-    serviceMeta.total,
-    serviceLimit
-]);
+        return Math.max(1, Math.ceil((serviceMeta.total || 0) / serviceLimit));
+    }, [
+        dashboardGlobalListMode,
+        dashboardGlobalMeta.totalPages,
+        serviceMeta.total,
+        serviceLimit
+    ]);
 
     const visiblePageNumbers = useMemo(() => {
         const pages = [];
@@ -914,7 +1048,7 @@ useEffect(() => {
     // ============================================================
     // ACKNOWLEDGMENT / LOGOUT
     // ============================================================
-    const handleAcknowledge = async (hostName, serviceDescription) => {
+    const handleAcknowledge = async (hostName, serviceDescription, hostId = null, serviceId = null) => {
         try {
             const token = localStorage.getItem('centreon_auth_token');
 
@@ -926,7 +1060,9 @@ useEffect(() => {
                 },
                 body: JSON.stringify({
                     host: hostName,
-                    service: serviceDescription
+                    service: serviceDescription,
+                    hostId,
+                    serviceId
                 })
             });
 
@@ -935,6 +1071,16 @@ useEffect(() => {
             }
 
             refreshDashboardData();
+
+            if (dashboardGlobalListMode) {
+                fetchDashboardGlobalServiceList(
+                    currentTableType,
+                    servicePage,
+                    serviceLimit,
+                    debouncedHostSearch,
+                    debouncedServiceSearch
+                );
+            }
 
         } catch (error) {
             console.error("Failed to run safe exception acknowledgment:", error);
@@ -963,11 +1109,6 @@ useEffect(() => {
                     <Link to="/pollers" className={`nav-item ${location.pathname === '/pollers' ? 'active' : ''}`}>
                         <span className="nav-icon">📡</span>
                         <span className="nav-text">Pollers</span>
-                    </Link>
-
-                    <Link to="/sla" className={`nav-item ${location.pathname === '/sla' ? 'active' : ''}`}>
-                        <span className="nav-icon">📈</span>
-                        <span className="nav-text">SLA Report</span>
                     </Link>
 
                     <Link to="/logs" className={`nav-item ${location.pathname === '/logs' ? 'active' : ''}`}>
@@ -1094,9 +1235,10 @@ useEffect(() => {
                                             onChange={(e) => {
                                                 setFilters(f => ({ ...f, poller: e.target.value }));
                                                 setShowAllStatusesForPoller(false);
+                                                setServicePage(1);
                                             }}
                                         >
-                                            <option value="all">All Pollers</option>
+                                            <option value="all">**NOT YET FUNCTIONING**</option>
                                             {pollerDropdownList.map(name => (
                                                 <option key={name} value={name}>
                                                     {name}
@@ -1114,21 +1256,28 @@ useEffect(() => {
                                     <h2 className="section-title">
                                         {isSearchMode ? 'Search Results' : 'Active Exceptions'}
                                     </h2>
-                                    <span className="service-count">
-    {
-        isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)
-            ? 'Loading...'
-            : dashboardGlobalListMode
-                ? `${dashboardTableServices.length} of ${dashboardGlobalMeta.total || 0} Targets`
-                : `${dashboardTableServices.length} Targets`
-    }
 
-    {dashboardGlobalListMode && (
-        <>
-            {' '}| Global cache {isRefreshingGlobalSummary ? 'refreshing...' : 'cached'}
-        </>
-    )}
-</span>
+                                    <span className="service-count">
+                                        {
+                                            dashboardGlobalListMode
+                                                ? (
+                                                    isLoadingDashboardGlobalList
+                                                        ? 'Loading...'
+                                                        : `${dashboardTableServices.length} of ${dashboardGlobalMeta.total || 0} Targets`
+                                                )
+                                                : (
+                                                    isLoadingServices
+                                                        ? 'Loading...'
+                                                        : `${dashboardTableServices.length} Targets`
+                                                )
+                                        }
+
+                                        {dashboardGlobalListMode && (
+                                            <>
+                                                {' '}| Global cache {isRefreshingGlobalSummary ? 'refreshing...' : 'cached'}
+                                            </>
+                                        )}
+                                    </span>
                                 </div>
                             </div>
 
@@ -1148,9 +1297,17 @@ useEffect(() => {
                                         {dashboardTableServices.length === 0 ? (
                                             <tr>
                                                 <td colSpan="5" className="loading-cell">
-                                                    {isLoadingServices
-                                                        ? 'Loading services...'
-                                                        : 'No services found matching current criteria.'}
+                                                    {dashboardGlobalListMode
+                                                        ? (
+                                                            isLoadingDashboardGlobalList
+                                                                ? 'Loading services...'
+                                                                : 'No active issues found matching current criteria.'
+                                                        )
+                                                        : (
+                                                            isLoadingServices
+                                                                ? 'Loading services...'
+                                                                : 'No active issues found matching current criteria.'
+                                                        )}
                                                 </td>
                                             </tr>
                                         ) : (
@@ -1183,7 +1340,12 @@ useEffect(() => {
 
                                                                 <button
                                                                     className="ack-btn"
-                                                                    onClick={() => handleAcknowledge(service.host?.name, service.description)}
+                                                                    onClick={() => handleAcknowledge(
+                                                                        service.host?.name,
+                                                                        service.description,
+                                                                        service.host?.id,
+                                                                        service.id
+                                                                    )}
                                                                     style={{
                                                                         background: '#238636',
                                                                         color: 'white',
@@ -1223,7 +1385,7 @@ useEffect(() => {
                                         className="filter-select"
                                         value={serviceLimit}
                                         onChange={handlePageSizeChange}
-                                        disabled={isLoadingServices}
+                                        disabled={isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)}
                                         style={{ width: '100px' }}
                                     >
                                         <option value={50}>50</option>
@@ -1235,13 +1397,13 @@ useEffect(() => {
 
                                 <div>
                                     Page {servicePage} of {totalPages}
-{' '}| Total Services: {dashboardGlobalListMode ? (dashboardGlobalMeta.total || 0) : (serviceMeta.total || 0)}
+                                    {' '}| Total Services: {dashboardGlobalListMode ? (dashboardGlobalMeta.total || 0) : (serviceMeta.total || 0)}
                                 </div>
 
                                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                                     <button
                                         className="refresh-btn"
-                                        disabled={servicePage <= 1 || isLoadingServices}
+                                        disabled={servicePage <= 1 || isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)}
                                         onClick={() => goToPage(1)}
                                     >
                                         First
@@ -1249,7 +1411,7 @@ useEffect(() => {
 
                                     <button
                                         className="refresh-btn"
-                                        disabled={servicePage <= 1 || isLoadingServices}
+                                        disabled={servicePage <= 1 || isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)}
                                         onClick={() => goToPage(servicePage - 1)}
                                     >
                                         Previous
@@ -1259,7 +1421,7 @@ useEffect(() => {
                                         <button
                                             key={page}
                                             className="refresh-btn"
-                                            disabled={isLoadingServices}
+                                            disabled={isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)}
                                             onClick={() => goToPage(page)}
                                             style={{
                                                 backgroundColor: page === servicePage ? '#238636' : undefined,
@@ -1272,7 +1434,7 @@ useEffect(() => {
 
                                     <button
                                         className="refresh-btn"
-                                        disabled={servicePage >= totalPages || isLoadingServices}
+                                        disabled={servicePage >= totalPages || isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)}
                                         onClick={() => goToPage(servicePage + 1)}
                                     >
                                         Next
@@ -1280,7 +1442,7 @@ useEffect(() => {
 
                                     <button
                                         className="refresh-btn"
-                                        disabled={servicePage >= totalPages || isLoadingServices}
+                                        disabled={servicePage >= totalPages || isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)}
                                         onClick={() => goToPage(totalPages)}
                                     >
                                         Last

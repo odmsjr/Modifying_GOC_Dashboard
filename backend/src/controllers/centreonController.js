@@ -1220,6 +1220,10 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 100;
 
+        const hostSearch = String(req.query.host || "").trim().toLowerCase();
+        const serviceSearch = String(req.query.service || "").trim().toLowerCase();
+        const qSearch = String(req.query.q || "").trim().toLowerCase();
+
         const now = Date.now();
 
         const hasCachedCounts =
@@ -1241,7 +1245,18 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
                 cached: false,
                 refreshing: dashboardGlobalSummaryCache.isRefreshing,
                 type,
+                query: {
+                    host: hostSearch,
+                    service: serviceSearch,
+                    q: qSearch
+                },
                 counts: dashboardGlobalSummaryCache.counts,
+                filteredCounts: {
+                    allActiveIssues: 0,
+                    critical: 0,
+                    warning: 0,
+                    unknown: 0
+                },
                 data: {
                     result: []
                 },
@@ -1263,20 +1278,76 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
         const warningServices = dashboardGlobalSummaryCache.services.warning || [];
         const unknownServices = dashboardGlobalSummaryCache.services.unknown || [];
 
+        // Full active issue cache.
+        const allActiveServices = [
+            ...criticalServices,
+            ...warningServices,
+            ...unknownServices
+        ];
+
+        // Apply host/service/q search to ALL active issue services first.
+        let filteredAllStatusServices = allActiveServices;
+
+        if (hostSearch || serviceSearch || qSearch) {
+            filteredAllStatusServices = allActiveServices.filter((service) => {
+                const hostName = String(service.host?.name || "").toLowerCase();
+                const hostDisplayName = String(service.host?.display_name || "").toLowerCase();
+                const hostAlias = String(service.host?.alias || "").toLowerCase();
+
+                const serviceDescription = String(service.description || "").toLowerCase();
+                const serviceDisplayName = String(service.display_name || "").toLowerCase();
+                const output = String(service.output || "").toLowerCase();
+
+                const matchesHost =
+                    !hostSearch ||
+                    hostName.includes(hostSearch) ||
+                    hostDisplayName.includes(hostSearch) ||
+                    hostAlias.includes(hostSearch);
+
+                const matchesService =
+                    !serviceSearch ||
+                    serviceDescription.includes(serviceSearch) ||
+                    serviceDisplayName.includes(serviceSearch) ||
+                    output.includes(serviceSearch);
+
+                const matchesQ =
+                    !qSearch ||
+                    hostName.includes(qSearch) ||
+                    hostDisplayName.includes(qSearch) ||
+                    hostAlias.includes(qSearch) ||
+                    serviceDescription.includes(qSearch) ||
+                    serviceDisplayName.includes(qSearch) ||
+                    output.includes(qSearch);
+
+                return matchesHost && matchesService && matchesQ;
+            });
+        }
+
+        // Important:
+        // Counts must be based on the searched active services,
+        // not on the selected card type.
+        const filteredCritical = filteredAllStatusServices.filter(service => service.statusCode === 2);
+        const filteredWarning = filteredAllStatusServices.filter(service => service.statusCode === 1);
+        const filteredUnknown = filteredAllStatusServices.filter(service => service.statusCode === 3);
+
+        const filteredCounts = {
+            allActiveIssues: filteredCritical.length + filteredWarning.length + filteredUnknown.length,
+            critical: filteredCritical.length,
+            warning: filteredWarning.length,
+            unknown: filteredUnknown.length
+        };
+
+        // Now apply selected card type only for table result.
         let selectedServices = [];
 
         if (type === "critical") {
-            selectedServices = criticalServices;
+            selectedServices = filteredCritical;
         } else if (type === "warning") {
-            selectedServices = warningServices;
+            selectedServices = filteredWarning;
         } else if (type === "unknown") {
-            selectedServices = unknownServices;
+            selectedServices = filteredUnknown;
         } else {
-            selectedServices = [
-                ...criticalServices,
-                ...warningServices,
-                ...unknownServices
-            ];
+            selectedServices = filteredAllStatusServices;
         }
 
         const startIndex = (page - 1) * limit;
@@ -1287,7 +1358,13 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
             cached: true,
             refreshing: dashboardGlobalSummaryCache.isRefreshing,
             type,
+            query: {
+                host: hostSearch,
+                service: serviceSearch,
+                q: qSearch
+            },
             counts: dashboardGlobalSummaryCache.counts,
+            filteredCounts,
             data: {
                 result: pagedServices
             },
@@ -1296,14 +1373,15 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
                 limit,
                 total: selectedServices.length,
                 totalPages: Math.max(1, Math.ceil(selectedServices.length / limit)),
+                filteredTotal: filteredAllStatusServices.length,
                 cacheLoaded: true,
                 cacheFresh: Boolean(hasFreshCache),
                 cacheRefreshing: dashboardGlobalSummaryCache.isRefreshing,
                 cacheUpdatedAt: dashboardGlobalSummaryCache.updatedAt,
                 cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS,
                 note: hasFreshCache
-                    ? "Global summary list returned from fresh cache."
-                    : "Global summary list returned from stale cache while refresh runs in the background."
+                    ? "Global summary list returned from fresh cache with active-issue search applied."
+                    : "Global summary list returned from stale cache with active-issue search applied while refresh runs in the background."
             }
         });
 
