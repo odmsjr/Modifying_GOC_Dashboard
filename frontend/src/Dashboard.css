@@ -474,75 +474,106 @@ body {
 /* ============================================================ */
 /* ACKNOWLEDGEMENTS                                             */
 /* ============================================================ */
-.ack-btn {
-    background-color: #238636;
-    border: none;
-    color: white;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 500;
+
+/* Main ACKNOWLEDGE button before acknowledgement */
+.ack-btn,
+.ack-action-btn {
+    background-color: #585858 !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(46, 160, 67, 0.75) !important;
+    padding: 5px 12px !important;
+    border-radius: 999px !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.3px !important;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s ease;
     white-space: nowrap !important;
     display: inline-block !important;
+    font-family: inherit;
 }
 
-.ack-btn:hover {
-    background-color: #2ea043;
-    transform: scale(1.02);
+.ack-btn:hover:not(:disabled),
+.ack-action-btn:hover:not(:disabled) {
+    background-color: #238636 !important;
+    transform: scale(1.03);
 }
 
-.ack-btn:disabled {
-    opacity: 0.65;
+.ack-btn:disabled,
+.ack-action-btn:disabled {
+    background-color: #30363d !important;
+    border-color: #484f58 !important;
+    opacity: 0.7;
     cursor: not-allowed;
     transform: none;
 }
 
-.ack-badge {
-    background-color: rgba(111, 66, 193, 0.85) !important;
-    color: white;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 500;
-    display: inline-block !important;
+/* ACKNOWLEDGED button after acknowledgement */
+.ack-badge,
+.ack-success-badge,
+button.ack-badge,
+button.ack-success-badge,
+button.ack-badge.ack-success-badge {
+    background-color: #238636 !important;
+    background: #238636 !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(46, 160, 67, 0.85) !important;
+    padding: 5px 14px !important;
+    border-radius: 999px !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.3px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease;
     white-space: nowrap !important;
-    border: 1px solid rgba(163, 113, 247, 0.45);
-}
-
-button.ack-badge {
-    font-family: inherit;
-    cursor: pointer;
-    line-height: normal;
+    display: inline-block !important;
+    font-family: inherit !important;
     appearance: none;
     outline: none;
+    box-shadow: none !important;
 }
 
-button.ack-badge:hover:not(:disabled) {
-    background-color: #8556d6 !important;
-    transform: scale(1.02);
+.ack-badge:hover:not(:disabled),
+.ack-success-badge:hover:not(:disabled),
+button.ack-badge:hover:not(:disabled),
+button.ack-success-badge:hover:not(:disabled),
+button.ack-badge.ack-success-badge:hover:not(:disabled) {
+    background-color: #2ea043 !important;
+    background: #a02e2e !important;
+    border-color: rgb(215, 253, 0) !important;
+    transform: scale(1.03);
 }
 
-button.ack-badge:disabled {
-    opacity: 0.65;
-    cursor: not-allowed;
+.ack-badge:disabled,
+.ack-success-badge:disabled,
+button.ack-badge:disabled,
+button.ack-success-badge:disabled,
+button.ack-badge.ack-success-badge:disabled {
+    background-color: #238636 !important;
+    background: #f10202 !important;
+    opacity: 0.7;
+    cursor: not-allowed !important;
     transform: none;
 }
 
+/* ACK cell layout */
 .ack-cell {
     text-align: center;
     white-space: nowrap;
 }
 
-.pending-badge {
-    background-color: rgba(255, 152, 48, 0.18);
-    color: #ffcc85;
-    border: 1px solid rgba(255, 152, 48, 0.45);
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
+/* Optional: acknowledged row green highlight */
+.services-table tr.service-row-acknowledged td {
+    background-color: rgba(35, 134, 54, 0.22) !important;
+    border-bottom-color: rgba(46, 160, 67, 0.25) !important;
+}
+
+.services-table tr.service-row-acknowledged:hover td {
+    background-color: rgba(35, 134, 54, 0.30) !important;
+}
+
+.services-table tr.service-row-acknowledged td:first-child {
+    border-left: 4px solid #2ea043 !important;
 }
 
 
