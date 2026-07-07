@@ -54,7 +54,10 @@ export default function Dashboard() {
         total: 0,
         totalPages: 1
     });
+
     const [isLoadingDashboardGlobalList, setIsLoadingDashboardGlobalList] = useState(false);
+    const [ackInProgressIds, setAckInProgressIds] = useState(new Set());
+    const [unackInProgressIds, setUnackInProgressIds] = useState(new Set());
 
     // Prevent stale search requests from overwriting newer results.
     const dashboardGlobalListRequestIdRef = useRef(0);
@@ -315,7 +318,6 @@ export default function Dashboard() {
 
             const payload = await response.json();
 
-            // Ignore stale responses, such as older search returning after newer clear/search.
             if (!isLatestRequest()) {
                 return;
             }
@@ -401,7 +403,6 @@ export default function Dashboard() {
                 setIsLoadingServices(true);
             }
 
-            // Do not let global summary overwrite filtered search card counts.
             fetchGlobalDashboardSummary(
                 !(usingDashboardGlobalCache && hasDashboardSearch)
             );
@@ -415,8 +416,6 @@ export default function Dashboard() {
                 }
             };
 
-            // If Dashboard is using global cache mode, do not run old service summary/search.
-            // This avoids UI flicker/twitching because the global list endpoint controls the table.
             if (usingDashboardGlobalCache) {
                 const hostsRes = await fetch(
                     `${BASE_API_URL}/api/centreon/hosts/status/all`,
@@ -754,26 +753,26 @@ export default function Dashboard() {
     // MANUAL REFRESH
     // ============================================================
     const handleGlobalManualRefresh = () => {
-    refreshDashboardData();
-    fetchPollersRoster();
+        refreshDashboardData();
+        fetchPollersRoster();
 
-    if (
-        location.pathname === '/dashboard' &&
-        filters.poller === 'all'
-    ) {
-        fetchDashboardGlobalServiceList(
-            currentTableType,
-            servicePage,
-            serviceLimit,
-            debouncedHostSearch,
-            debouncedServiceSearch
-        );
-    }
+        if (
+            location.pathname === '/dashboard' &&
+            filters.poller === 'all'
+        ) {
+            fetchDashboardGlobalServiceList(
+                currentTableType,
+                servicePage,
+                serviceLimit,
+                debouncedHostSearch,
+                debouncedServiceSearch
+            );
+        }
 
-    if (selectedPollerId) {
-        fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
-    }
-};
+        if (selectedPollerId) {
+            fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
+        }
+    };
 
     // ============================================================
     // LIFECYCLE
@@ -786,23 +785,11 @@ export default function Dashboard() {
             return;
         }
 
-        const suppressSummaryCardUpdate =
-            location.pathname === '/dashboard' &&
-            filters.poller === 'all' &&
-            Boolean(debouncedHostSearch || debouncedServiceSearch);
-
         refreshDashboardData();
-        fetchGlobalDashboardSummary(!suppressSummaryCardUpdate);
         fetchPollersRoster();
 
         const heartbeat = setInterval(() => {
-            const heartbeatSuppressSummaryCardUpdate =
-                location.pathname === '/dashboard' &&
-                filters.poller === 'all' &&
-                Boolean(debouncedHostSearch || debouncedServiceSearch);
-
             refreshDashboardData();
-            fetchGlobalDashboardSummary(!heartbeatSuppressSummaryCardUpdate);
             fetchPollersRoster();
 
             if (selectedPollerId) {
@@ -813,16 +800,12 @@ export default function Dashboard() {
         return () => clearInterval(heartbeat);
     }, [
         refreshDashboardData,
-        fetchGlobalDashboardSummary,
         fetchPollersRoster,
         fetchPollerHosts,
         selectedPollerId,
         pollerHostPage,
         pollerHostLimit,
         location.pathname,
-        filters.poller,
-        debouncedHostSearch,
-        debouncedServiceSearch,
         navigate
     ]);
 
@@ -1041,10 +1024,157 @@ export default function Dashboard() {
     };
 
     // ============================================================
-    // ACKNOWLEDGMENT / LOGOUT
+    // ACKNOWLEDGMENT / UNACKNOWLEDGMENT / LOGOUT
     // ============================================================
+    const getAckKey = (hostName, serviceDescription, hostId = null, serviceId = null) => {
+        return String(
+            serviceId ??
+            `${hostId || ''}-${hostName || ''}-${serviceDescription || ''}`
+        );
+    };
+
+    const isServiceAcknowledged = (service) => {
+        const acknowledgement = service.acknowledgement;
+
+        return Boolean(
+            service.is_acknowledged === true ||
+            service.is_acknowledged === 1 ||
+            service.is_acknowledged === '1' ||
+            service.is_acknowledged === 'true' ||
+            service.acknowledged === true ||
+            service.acknowledged === 1 ||
+            service.acknowledged === '1' ||
+            service.acknowledged === 'true' ||
+            acknowledgement?.is_acknowledged === true ||
+            acknowledgement?.is_acknowledged === 1 ||
+            acknowledgement?.is_acknowledged === '1' ||
+            acknowledgement?.is_acknowledged === 'true' ||
+            Boolean(acknowledgement?.author) ||
+            Boolean(acknowledgement?.comment) ||
+            Boolean(acknowledgement?.entry_time)
+        );
+    };
+
+    const markServiceAsAcknowledged = useCallback((hostName, serviceDescription, hostId = null, serviceId = null) => {
+        const matchesService = (service) => {
+            const currentServiceId = service.id;
+            const currentHostId = service.host?.id;
+
+            const currentHostName =
+                service.host?.name ||
+                service.host?.display_name ||
+                '';
+
+            const currentServiceDescription =
+                service.description ||
+                service.display_name ||
+                '';
+
+            if (serviceId !== null && serviceId !== undefined) {
+                return String(currentServiceId) === String(serviceId);
+            }
+
+            if (hostId !== null && hostId !== undefined) {
+                return (
+                    String(currentHostId) === String(hostId) &&
+                    currentServiceDescription === serviceDescription
+                );
+            }
+
+            return (
+                currentHostName === hostName &&
+                currentServiceDescription === serviceDescription
+            );
+        };
+
+        const patchService = (service) => {
+            if (!matchesService(service)) {
+                return service;
+            }
+
+            return {
+                ...service,
+                is_acknowledged: true,
+                acknowledged: true,
+                acknowledgement: {
+                    ...(typeof service.acknowledgement === 'object' ? service.acknowledgement : {}),
+                    is_acknowledged: true,
+                    comment: service.acknowledgement?.comment || 'Acknowledged from GOC Dashboard'
+                }
+            };
+        };
+
+        setDashboardGlobalServices(prev => prev.map(patchService));
+        setPollerServices(prev => prev.map(patchService));
+        setCachedCritical(prev => prev.map(patchService));
+        setCachedWarning(prev => prev.map(patchService));
+        setCachedUnknown(prev => prev.map(patchService));
+        setCachedSearchResults(prev => prev.map(patchService));
+    }, []);
+
+    const markServiceAsUnacknowledged = useCallback((hostName, serviceDescription, hostId = null, serviceId = null) => {
+        const matchesService = (service) => {
+            const currentServiceId = service.id;
+            const currentHostId = service.host?.id;
+
+            const currentHostName =
+                service.host?.name ||
+                service.host?.display_name ||
+                '';
+
+            const currentServiceDescription =
+                service.description ||
+                service.display_name ||
+                '';
+
+            if (serviceId !== null && serviceId !== undefined) {
+                return String(currentServiceId) === String(serviceId);
+            }
+
+            if (hostId !== null && hostId !== undefined) {
+                return (
+                    String(currentHostId) === String(hostId) &&
+                    currentServiceDescription === serviceDescription
+                );
+            }
+
+            return (
+                currentHostName === hostName &&
+                currentServiceDescription === serviceDescription
+            );
+        };
+
+        const patchService = (service) => {
+            if (!matchesService(service)) {
+                return service;
+            }
+
+            return {
+                ...service,
+                is_acknowledged: false,
+                acknowledged: false,
+                acknowledgement: null
+            };
+        };
+
+        setDashboardGlobalServices(prev => prev.map(patchService));
+        setPollerServices(prev => prev.map(patchService));
+        setCachedCritical(prev => prev.map(patchService));
+        setCachedWarning(prev => prev.map(patchService));
+        setCachedUnknown(prev => prev.map(patchService));
+        setCachedSearchResults(prev => prev.map(patchService));
+    }, []);
+
     const handleAcknowledge = async (hostName, serviceDescription, hostId = null, serviceId = null) => {
+        const ackKey = getAckKey(hostName, serviceDescription, hostId, serviceId);
+
         try {
+            setAckInProgressIds(prev => {
+                const next = new Set(prev);
+                next.add(ackKey);
+                return next;
+            });
+
             const token = localStorage.getItem('centreon_auth_token');
 
             const response = await fetch(`${BASE_API_URL}/api/centreon/acknowledge`, {
@@ -1065,20 +1195,73 @@ export default function Dashboard() {
                 throw new Error("Acknowledge network payload failed");
             }
 
-            refreshDashboardData();
+            await response.json();
 
-            if (dashboardGlobalListMode) {
-                fetchDashboardGlobalServiceList(
-                    currentTableType,
-                    servicePage,
-                    serviceLimit,
-                    debouncedHostSearch,
-                    debouncedServiceSearch
-                );
+            markServiceAsAcknowledged(hostName, serviceDescription, hostId, serviceId);
+            setLastUpdated(new Date().toLocaleTimeString());
+
+            if (!dashboardGlobalListMode) {
+                refreshDashboardData();
             }
 
         } catch (error) {
             console.error("Failed to run safe exception acknowledgment:", error);
+        } finally {
+            setAckInProgressIds(prev => {
+                const next = new Set(prev);
+                next.delete(ackKey);
+                return next;
+            });
+        }
+    };
+
+    const handleUnacknowledge = async (hostName, serviceDescription, hostId = null, serviceId = null) => {
+        const ackKey = getAckKey(hostName, serviceDescription, hostId, serviceId);
+
+        try {
+            setUnackInProgressIds(prev => {
+                const next = new Set(prev);
+                next.add(ackKey);
+                return next;
+            });
+
+            const token = localStorage.getItem('centreon_auth_token');
+
+            const response = await fetch(`${BASE_API_URL}/api/centreon/unacknowledge`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    host: hostName,
+                    service: serviceDescription,
+                    hostId,
+                    serviceId
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error("Unacknowledge network payload failed");
+            }
+
+            await response.json();
+
+            markServiceAsUnacknowledged(hostName, serviceDescription, hostId, serviceId);
+            setLastUpdated(new Date().toLocaleTimeString());
+
+            if (!dashboardGlobalListMode) {
+                refreshDashboardData();
+            }
+
+        } catch (error) {
+            console.error("Failed to run safe unacknowledgement:", error);
+        } finally {
+            setUnackInProgressIds(prev => {
+                const next = new Set(prev);
+                next.delete(ackKey);
+                return next;
+            });
         }
     };
 
@@ -1306,59 +1489,82 @@ export default function Dashboard() {
                                                 </td>
                                             </tr>
                                         ) : (
-                                            dashboardTableServices.map((service, idx) => (
-                                                <tr key={service.id || idx}>
-                                                    <td className="host-name">
-                                                        {service.host?.name || service.host?.display_name || 'N/A'}
-                                                    </td>
+                                            dashboardTableServices.map((service, idx) => {
+                                                const hostName = service.host?.name || service.host?.display_name;
+                                                const serviceDescription = service.description || service.display_name;
+                                                const ackKey = getAckKey(hostName, serviceDescription, service.host?.id, service.id);
 
-                                                    <td className="service-name">
-                                                        {service.description || service.display_name || 'N/A'}
-                                                    </td>
+                                                return (
+                                                    <tr key={service.id || idx}>
+                                                        <td className="host-name">
+                                                            {hostName || 'N/A'}
+                                                        </td>
 
-                                                    <td className="service-output">
-                                                        {service.output || 'No output details provided.'}
-                                                    </td>
+                                                        <td className="service-name">
+                                                            {serviceDescription || 'N/A'}
+                                                        </td>
 
-                                                    <td>
-                                                        <span className={`status-text ${service.statusName?.toLowerCase()}`}>
-                                                            {service.statusName}
-                                                        </span>
-                                                    </td>
+                                                        <td className="service-output">
+                                                            {service.output || 'No output details provided.'}
+                                                        </td>
 
-                                                    <td className="ack-cell">
-                                                        {service.is_acknowledged ? (
-                                                            <span className="ack-badge">Acknowledged</span>
-                                                        ) : (
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                <span className="pending-badge">Pending</span>
+                                                        <td>
+                                                            <span className={`status-text ${service.statusName?.toLowerCase()}`}>
+                                                                {service.statusName}
+                                                            </span>
+                                                        </td>
 
+                                                        <td className="ack-cell">
+                                                            {isServiceAcknowledged(service) ? (
                                                                 <button
-                                                                    className="ack-btn"
-                                                                    onClick={() => handleAcknowledge(
-                                                                        service.host?.name,
-                                                                        service.description,
+                                                                    className="ack-badge"
+                                                                    disabled={unackInProgressIds.has(ackKey)}
+                                                                    onClick={() => handleUnacknowledge(
+                                                                        hostName,
+                                                                        serviceDescription,
                                                                         service.host?.id,
                                                                         service.id
                                                                     )}
+                                                                    title="Click to remove acknowledgement"
                                                                     style={{
-                                                                        background: '#238636',
-                                                                        color: 'white',
-                                                                        border: 'none',
-                                                                        padding: '2px 8px',
-                                                                        borderRadius: '4px',
-                                                                        cursor: 'pointer',
-                                                                        fontSize: '11px',
-                                                                        fontWeight: 'bold'
+                                                                        cursor: unackInProgressIds.has(ackKey) ? 'not-allowed' : 'pointer',
+                                                                        border: '1px solid rgba(163, 113, 247, 0.45)'
                                                                     }}
                                                                 >
-                                                                    Ack
+                                                                    {unackInProgressIds.has(ackKey) ? 'Removing...' : 'Acknowledged'}
                                                                 </button>
-                                                            </div>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))
+                                                            ) : (
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                    <span className="pending-badge">Pending</span>
+
+                                                                    <button
+                                                                        className="ack-btn"
+                                                                        disabled={ackInProgressIds.has(ackKey)}
+                                                                        onClick={() => handleAcknowledge(
+                                                                            hostName,
+                                                                            serviceDescription,
+                                                                            service.host?.id,
+                                                                            service.id
+                                                                        )}
+                                                                        style={{
+                                                                            background: ackInProgressIds.has(ackKey) ? '#30363d' : '#238636',
+                                                                            color: 'white',
+                                                                            border: 'none',
+                                                                            padding: '2px 8px',
+                                                                            borderRadius: '4px',
+                                                                            cursor: ackInProgressIds.has(ackKey) ? 'not-allowed' : 'pointer',
+                                                                            fontSize: '11px',
+                                                                            fontWeight: 'bold'
+                                                                        }}
+                                                                    >
+                                                                        {ackInProgressIds.has(ackKey) ? 'Acking...' : 'Ack'}
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>
@@ -1604,35 +1810,53 @@ export default function Dashboard() {
                                                         </td>
                                                     </tr>
                                                 ) : (
-                                                    filteredPollerServices.map((service, idx) => (
-                                                        <tr key={service.id || idx}>
-                                                            <td className="host-name">
-                                                                {service.host?.name || service.host?.display_name || 'N/A'}
-                                                            </td>
+                                                    filteredPollerServices.map((service, idx) => {
+                                                        const hostName = service.host?.name || service.host?.display_name;
+                                                        const serviceDescription = service.description || service.display_name;
+                                                        const ackKey = getAckKey(hostName, serviceDescription, service.host?.id, service.id);
 
-                                                            <td className="service-name">
-                                                                {service.description || service.display_name || 'N/A'}
-                                                            </td>
+                                                        return (
+                                                            <tr key={service.id || idx}>
+                                                                <td className="host-name">
+                                                                    {hostName || 'N/A'}
+                                                                </td>
 
-                                                            <td className="service-output">
-                                                                {service.output || 'No output details provided.'}
-                                                            </td>
+                                                                <td className="service-name">
+                                                                    {serviceDescription || 'N/A'}
+                                                                </td>
 
-                                                            <td>
-                                                                <span className={`status-text ${service.statusName?.toLowerCase()}`}>
-                                                                    {service.statusName}
-                                                                </span>
-                                                            </td>
+                                                                <td className="service-output">
+                                                                    {service.output || 'No output details provided.'}
+                                                                </td>
 
-                                                            <td className="ack-cell">
-                                                                {service.is_acknowledged ? (
-                                                                    <span className="ack-badge">Acknowledged</span>
-                                                                ) : (
-                                                                    <span className="pending-badge">Pending</span>
-                                                                )}
-                                                            </td>
-                                                        </tr>
-                                                    ))
+                                                                <td>
+                                                                    <span className={`status-text ${service.statusName?.toLowerCase()}`}>
+                                                                        {service.statusName}
+                                                                    </span>
+                                                                </td>
+
+                                                                <td className="ack-cell">
+                                                                    {isServiceAcknowledged(service) ? (
+                                                                        <button
+                                                                            className="ack-badge"
+                                                                            disabled={unackInProgressIds.has(ackKey)}
+                                                                            onClick={() => handleUnacknowledge(
+                                                                                hostName,
+                                                                                serviceDescription,
+                                                                                service.host?.id,
+                                                                                service.id
+                                                                            )}
+                                                                            title="Click to remove acknowledgement"
+                                                                        >
+                                                                            {unackInProgressIds.has(ackKey) ? 'Removing...' : 'Acknowledged'}
+                                                                        </button>
+                                                                    ) : (
+                                                                        <span className="pending-badge">Pending</span>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
                                                 )}
                                             </tbody>
                                         </table>

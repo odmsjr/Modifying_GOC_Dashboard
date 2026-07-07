@@ -58,7 +58,8 @@ const handleCentreonError = (error, res, next) => {
         status: error.response?.status,
         data: error.response?.data,
         message: error.message,
-        code: error.code
+        code: error.code,
+        debug: error.debug
     });
 
     if (error.response?.status === 401) {
@@ -100,10 +101,37 @@ const normalizeService = (service) => {
         service.status?.name || getStatusNameFromCode(statusCode)
     ).toUpperCase();
 
+    const acknowledgement =
+        service.acknowledgement ||
+        service.acknowledgements ||
+        service.ack ||
+        null;
+
+    const isAcknowledged = Boolean(
+        service.is_acknowledged === true ||
+        service.is_acknowledged === 1 ||
+        service.is_acknowledged === "1" ||
+        service.is_acknowledged === "true" ||
+        service.acknowledged === true ||
+        service.acknowledged === 1 ||
+        service.acknowledged === "1" ||
+        service.acknowledged === "true" ||
+        acknowledgement?.is_acknowledged === true ||
+        acknowledgement?.is_acknowledged === 1 ||
+        acknowledgement?.is_acknowledged === "1" ||
+        acknowledgement?.is_acknowledged === "true" ||
+        Boolean(acknowledgement?.author) ||
+        Boolean(acknowledgement?.comment) ||
+        Boolean(acknowledgement?.entry_time)
+    );
+
     return {
         ...service,
         statusCode,
         statusName,
+        is_acknowledged: isAcknowledged,
+        acknowledged: isAcknowledged,
+        acknowledgement: acknowledgement || service.acknowledgement || null,
         poller_name:
             service.poller_name ||
             service.host?.poller_name ||
@@ -132,9 +160,7 @@ const deriveServerType = (server) => {
         server.serverType ||
         "";
 
-    if (rawType) {
-        return rawType;
-    }
+    if (rawType) return rawType;
 
     const name = String(
         server.name ||
@@ -144,17 +170,9 @@ const deriveServerType = (server) => {
         ""
     ).toLowerCase();
 
-    if (name === "central" || name.includes("central")) {
-        return "Central";
-    }
-
-    if (name.includes("remote")) {
-        return "Remote";
-    }
-
-    if (name.includes("poller")) {
-        return "Poller";
-    }
+    if (name === "central" || name.includes("central")) return "Central";
+    if (name.includes("remote")) return "Remote";
+    if (name.includes("poller")) return "Poller";
 
     return "N/A";
 };
@@ -216,15 +234,267 @@ const writeAuditLog = async ({
     ]);
 };
 
-/**
- * Gets real Centreon poller / monitoring server names.
- * This maps:
- * poller_id -> { name, address, server_type }
- */
+// ============================================================
+// ACK / UNACK CACHE HELPERS
+// ============================================================
+
+const markDashboardCachedServiceAsAcknowledged = ({
+    hostId,
+    serviceId,
+    hostName,
+    serviceDescription,
+    comment,
+    actionBy
+}) => {
+    let patchedCount = 0;
+
+    const patchService = (service) => {
+        const currentServiceId =
+            service.id ??
+            service.service_id ??
+            service.serviceId;
+
+        const currentHostId =
+            service.host?.id ??
+            service.host?.host_id ??
+            service.host_id;
+
+        const currentHostName = String(
+            service.host?.name ||
+            service.host?.display_name ||
+            service.host_name ||
+            ""
+        ).toLowerCase();
+
+        const currentServiceDescription = String(
+            service.description ||
+            service.display_name ||
+            service.service_name ||
+            ""
+        ).toLowerCase();
+
+        const targetHostName = String(hostName || "").toLowerCase();
+        const targetServiceDescription = String(serviceDescription || "").toLowerCase();
+
+        let isMatch = false;
+
+        if (serviceId !== undefined && serviceId !== null) {
+            isMatch = String(currentServiceId) === String(serviceId);
+        } else if (hostId !== undefined && hostId !== null) {
+            isMatch =
+                String(currentHostId) === String(hostId) &&
+                currentServiceDescription === targetServiceDescription;
+        } else {
+            isMatch =
+                currentHostName === targetHostName &&
+                currentServiceDescription === targetServiceDescription;
+        }
+
+        if (!isMatch) return service;
+
+        patchedCount += 1;
+
+        return {
+            ...service,
+            is_acknowledged: true,
+            acknowledged: true,
+            acknowledgement: {
+                ...(typeof service.acknowledgement === "object" && !Array.isArray(service.acknowledgement)
+                    ? service.acknowledgement
+                    : {}),
+                is_acknowledged: true,
+                author: actionBy || "Dashboard User",
+                comment: comment || "Acknowledged from GOC Dashboard",
+                entry_time: new Date().toISOString()
+            }
+        };
+    };
+
+    dashboardGlobalSummaryCache = {
+        ...dashboardGlobalSummaryCache,
+        services: {
+            critical: (dashboardGlobalSummaryCache.services.critical || []).map(patchService),
+            warning: (dashboardGlobalSummaryCache.services.warning || []).map(patchService),
+            unknown: (dashboardGlobalSummaryCache.services.unknown || []).map(patchService)
+        }
+    };
+
+    console.log("Dashboard ACK cache patch result:", {
+        patchedCount,
+        hostId,
+        serviceId,
+        hostName,
+        serviceDescription
+    });
+
+    return patchedCount;
+};
+
+const markDashboardCachedServiceAsUnacknowledged = ({
+    hostId,
+    serviceId,
+    hostName,
+    serviceDescription
+}) => {
+    let patchedCount = 0;
+
+    const patchService = (service) => {
+        const currentServiceId =
+            service.id ??
+            service.service_id ??
+            service.serviceId;
+
+        const currentHostId =
+            service.host?.id ??
+            service.host?.host_id ??
+            service.host_id;
+
+        const currentHostName = String(
+            service.host?.name ||
+            service.host?.display_name ||
+            service.host_name ||
+            ""
+        ).toLowerCase();
+
+        const currentServiceDescription = String(
+            service.description ||
+            service.display_name ||
+            service.service_name ||
+            ""
+        ).toLowerCase();
+
+        const targetHostName = String(hostName || "").toLowerCase();
+        const targetServiceDescription = String(serviceDescription || "").toLowerCase();
+
+        let isMatch = false;
+
+        if (serviceId !== undefined && serviceId !== null) {
+            isMatch = String(currentServiceId) === String(serviceId);
+        } else if (hostId !== undefined && hostId !== null) {
+            isMatch =
+                String(currentHostId) === String(hostId) &&
+                currentServiceDescription === targetServiceDescription;
+        } else {
+            isMatch =
+                currentHostName === targetHostName &&
+                currentServiceDescription === targetServiceDescription;
+        }
+
+        if (!isMatch) return service;
+
+        patchedCount += 1;
+
+        return {
+            ...service,
+            is_acknowledged: false,
+            acknowledged: false,
+            acknowledgement: null
+        };
+    };
+
+    dashboardGlobalSummaryCache = {
+        ...dashboardGlobalSummaryCache,
+        services: {
+            critical: (dashboardGlobalSummaryCache.services.critical || []).map(patchService),
+            warning: (dashboardGlobalSummaryCache.services.warning || []).map(patchService),
+            unknown: (dashboardGlobalSummaryCache.services.unknown || []).map(patchService)
+        }
+    };
+
+    console.log("Dashboard UNACK cache patch result:", {
+        patchedCount,
+        hostId,
+        serviceId,
+        hostName,
+        serviceDescription
+    });
+
+    return patchedCount;
+};
+
+const sendCentreonUnacknowledgeRequest = async (req, payload) => {
+    const resource = payload.resources?.[0];
+
+    const hostId =
+        resource?.parent?.id ??
+        resource?.host_id ??
+        resource?.hostId;
+
+    const serviceId =
+        resource?.id ??
+        resource?.service_id ??
+        resource?.serviceId;
+
+    if (!hostId || !serviceId) {
+        const error = new Error("Missing hostId or serviceId for Centreon unacknowledge.");
+        error.debug = { payload, hostId, serviceId };
+        throw error;
+    }
+
+    const attempts = [
+        {
+            label: "DELETE /monitoring/hosts/{hostId}/services/{serviceId}/acknowledgements",
+            method: "delete",
+            endpoint: `/monitoring/hosts/${hostId}/services/${serviceId}/acknowledgements`,
+            data: null
+        },
+        {
+            label: "DELETE /monitoring/resources/acknowledgements",
+            method: "delete",
+            endpoint: "/monitoring/resources/acknowledgements",
+            data: {
+                disacknowledgement: {
+                    with_services: false
+                },
+                resources: payload.resources
+            }
+        }
+    ];
+
+    const errors = [];
+
+    for (const attempt of attempts) {
+        try {
+            console.log(`Centreon unacknowledge attempt [${attempt.label}]:`, {
+                endpoint: attempt.endpoint,
+                data: attempt.data
+            });
+
+            return await centreonAxios.delete(attempt.endpoint, {
+                headers: getCentreonHeaders(req),
+                data: attempt.data || undefined
+            });
+
+        } catch (error) {
+            errors.push({
+                label: attempt.label,
+                endpoint: attempt.endpoint,
+                status: error.response?.status,
+                data: error.response?.data,
+                message: error.message
+            });
+
+            console.warn(`Centreon unacknowledge failed [${attempt.label}]`, {
+                endpoint: attempt.endpoint,
+                status: error.response?.status,
+                data: error.response?.data,
+                message: error.message
+            });
+        }
+    }
+
+    const finalError = new Error("All Centreon unacknowledge attempts failed.");
+    finalError.debug = errors;
+    throw finalError;
+};
+
+// ============================================================
+// MONITORING SERVER / CACHE HELPERS
+// ============================================================
+
 const getMonitoringServerMap = async (req) => {
     try {
         const serverMap = {};
-
         const limit = 1000;
         let page = 1;
         let counted = 0;
@@ -286,15 +556,11 @@ const getMonitoringServerMap = async (req) => {
 
             counted += servers.length;
 
-            if (counted >= totalFromCentreon || servers.length === 0) {
-                break;
-            }
-
+            if (counted >= totalFromCentreon || servers.length === 0) break;
             page += 1;
         }
 
         console.log("Monitoring server map:", serverMap);
-
         return serverMap;
 
     } catch (error) {
@@ -309,15 +575,17 @@ const getMonitoringServerMap = async (req) => {
 };
 
 const refreshPollerHostCountCache = async (req, monitoringServerMap) => {
-    if (pollerHostCountCache.isRefreshing) {
-        return;
-    }
+    if (pollerHostCountCache.isRefreshing) return;
 
     pollerHostCountCache.isRefreshing = true;
 
     try {
         const countMap = {};
         const hostsByPoller = {};
+        const limit = 1000;
+        let page = 1;
+        let counted = 0;
+        let totalFromCentreon = 0;
 
         Object.values(monitoringServerMap).forEach((server) => {
             const pollerId = String(server.id);
@@ -333,18 +601,8 @@ const refreshPollerHostCountCache = async (req, monitoringServerMap) => {
             hostsByPoller[pollerId] = [];
         });
 
-        const limit = 1000;
-        let page = 1;
-        let counted = 0;
-        let totalFromCentreon = 0;
-
         while (true) {
-            const params = new URLSearchParams({
-                page: String(page),
-                limit: String(limit)
-            });
-
-            const endpoint = `/monitoring/hosts?${params.toString()}`;
+            const endpoint = `/monitoring/hosts?page=${page}&limit=${limit}`;
 
             console.log("Centreon background poller host count URL:", endpoint);
 
@@ -392,23 +650,15 @@ const refreshPollerHostCountCache = async (req, monitoringServerMap) => {
 
                 const state = Number(host.state);
 
-                if (state === 0) {
-                    countMap[pollerId].upHosts += 1;
-                } else if (state === 1) {
-                    countMap[pollerId].downHosts += 1;
-                } else if (state === 2) {
-                    countMap[pollerId].unreachableHosts += 1;
-                } else if (state === 3) {
-                    countMap[pollerId].pendingHosts += 1;
-                }
+                if (state === 0) countMap[pollerId].upHosts += 1;
+                else if (state === 1) countMap[pollerId].downHosts += 1;
+                else if (state === 2) countMap[pollerId].unreachableHosts += 1;
+                else if (state === 3) countMap[pollerId].pendingHosts += 1;
             });
 
             counted += hosts.length;
 
-            if (counted >= totalFromCentreon || hosts.length === 0) {
-                break;
-            }
-
+            if (counted >= totalFromCentreon || hosts.length === 0) break;
             page += 1;
         }
 
@@ -436,9 +686,7 @@ const refreshPollerHostCountCache = async (req, monitoringServerMap) => {
 };
 
 const refreshDashboardGlobalSummaryCache = async (req) => {
-    if (dashboardGlobalSummaryCache.isRefreshing) {
-        return;
-    }
+    if (dashboardGlobalSummaryCache.isRefreshing) return;
 
     dashboardGlobalSummaryCache.isRefreshing = true;
 
@@ -453,10 +701,7 @@ const refreshDashboardGlobalSummaryCache = async (req) => {
         const unknownServices = [];
 
         while (true) {
-            const endpoint = buildServicesEndpoint({
-                page,
-                limit
-            });
+            const endpoint = buildServicesEndpoint({ page, limit });
 
             console.log("Centreon dashboard global summary cache URL:", endpoint);
 
@@ -468,13 +713,9 @@ const refreshDashboardGlobalSummaryCache = async (req) => {
             const normalizedServices = services.map(normalizeService);
 
             normalizedServices.forEach((service) => {
-                if (service.statusCode === 2) {
-                    criticalServices.push(service);
-                } else if (service.statusCode === 1) {
-                    warningServices.push(service);
-                } else if (service.statusCode === 3) {
-                    unknownServices.push(service);
-                }
+                if (service.statusCode === 2) criticalServices.push(service);
+                else if (service.statusCode === 1) warningServices.push(service);
+                else if (service.statusCode === 3) unknownServices.push(service);
             });
 
             totalFromCentreon =
@@ -483,10 +724,7 @@ const refreshDashboardGlobalSummaryCache = async (req) => {
 
             counted += services.length;
 
-            if (counted >= totalFromCentreon || services.length === 0) {
-                break;
-            }
-
+            if (counted >= totalFromCentreon || services.length === 0) break;
             page += 1;
         }
 
@@ -539,69 +777,6 @@ const refreshDashboardGlobalSummaryCache = async (req) => {
     }
 };
 
-// Temporary debug endpoint to verify Centreon monitoring servers output.
-const testMonitoringServers = async (req, res, next) => {
-    try {
-        const limit = Number(req.query.limit) || 1000;
-        let page = 1;
-        let counted = 0;
-        let totalFromCentreon = 0;
-
-        const allServers = [];
-
-        while (true) {
-            const params = new URLSearchParams({
-                page: String(page),
-                limit: String(limit)
-            });
-
-            const endpoint = `/configuration/monitoring-servers?${params.toString()}`;
-
-            console.log("Centreon testMonitoringServers URL:", endpoint);
-
-            const response = await centreonAxios.get(endpoint, {
-                headers: getCentreonHeaders(req)
-            });
-
-            const servers =
-                response.data?.result ||
-                response.data?.data?.result ||
-                response.data?.items ||
-                response.data?.data ||
-                [];
-
-            totalFromCentreon =
-                response.data?.meta?.total ||
-                response.data?.data?.meta?.total ||
-                servers.length;
-
-            allServers.push(...servers);
-
-            counted += servers.length;
-
-            if (counted >= totalFromCentreon || servers.length === 0) {
-                break;
-            }
-
-            page += 1;
-        }
-
-        return res.json({
-            success: true,
-            count: allServers.length,
-            data: {
-                result: allServers
-            },
-            meta: {
-                total: allServers.length
-            }
-        });
-
-    } catch (error) {
-        return handleCentreonError(error, res, next);
-    }
-};
-
 // ============================================================
 // HOST ENDPOINTS
 // ============================================================
@@ -611,12 +786,7 @@ const getAllHosts = async (req, res, next) => {
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 100;
 
-        const params = new URLSearchParams({
-            page: String(page),
-            limit: String(limit)
-        });
-
-        const endpoint = `/monitoring/hosts?${params.toString()}`;
+        const endpoint = `/monitoring/hosts?page=${page}&limit=${limit}`;
 
         console.log("Centreon getAllHosts URL:", endpoint);
 
@@ -634,6 +804,7 @@ const getAllHosts = async (req, res, next) => {
                 total: response.data?.result?.length || 0
             }
         });
+
     } catch (error) {
         return handleCentreonError(error, res, next);
     }
@@ -654,6 +825,7 @@ const getHostById = async (req, res, next) => {
             success: true,
             data: response.data
         });
+
     } catch (error) {
         return handleCentreonError(error, res, next);
     }
@@ -664,12 +836,7 @@ const getHostStatus = async (req, res, next) => {
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 100;
 
-        const params = new URLSearchParams({
-            page: String(page),
-            limit: String(limit)
-        });
-
-        const endpoint = `/monitoring/hosts?${params.toString()}`;
+        const endpoint = `/monitoring/hosts?page=${page}&limit=${limit}`;
 
         console.log("Centreon getHostStatus URL:", endpoint);
 
@@ -681,6 +848,7 @@ const getHostStatus = async (req, res, next) => {
             success: true,
             data: response.data
         });
+
     } catch (error) {
         return handleCentreonError(error, res, next);
     }
@@ -693,7 +861,6 @@ const getHostStatus = async (req, res, next) => {
 const getAllPollers = async (req, res, next) => {
     try {
         const monitoringServerMap = await getMonitoringServerMap(req);
-
         const now = Date.now();
 
         const hasFreshCache =
@@ -737,10 +904,7 @@ const getAllPollers = async (req, res, next) => {
                 totalPollers: pollers.length,
                 hostCountLoaded: Boolean(hasFreshCache),
                 hostCountRefreshing: pollerHostCountCache.isRefreshing,
-                hostCountUpdatedAt: pollerHostCountCache.updatedAt,
-                note: hasFreshCache
-                    ? "Poller list loaded from cached host counts."
-                    : "Poller list loaded immediately. Host counts are refreshing in the background."
+                hostCountUpdatedAt: pollerHostCountCache.updatedAt
             }
         });
 
@@ -752,7 +916,6 @@ const getAllPollers = async (req, res, next) => {
 const getPollerHosts = async (req, res, next) => {
     try {
         const { pollerId } = req.params;
-
         const monitoringServerMap = await getMonitoringServerMap(req);
         const mappedServer = monitoringServerMap[String(pollerId)];
 
@@ -769,7 +932,6 @@ const getPollerHosts = async (req, res, next) => {
             pollerHostCountCache.updatedAt &&
             now - pollerHostCountCache.updatedAt < POLLER_HOST_COUNT_CACHE_TTL_MS;
 
-        // If cache is missing or stale, refresh in the background.
         if (!hasFreshCache && !pollerHostCountCache.isRefreshing) {
             refreshPollerHostCountCache(req, monitoringServerMap);
         }
@@ -777,7 +939,6 @@ const getPollerHosts = async (req, res, next) => {
         const allHostsForPoller =
             pollerHostCountCache.hostsByPoller?.[String(pollerId)] || [];
 
-        // If no cache exists yet, return fast instead of scanning all hosts.
         if (!hasAnyCache) {
             return res.json({
                 success: true,
@@ -786,17 +947,14 @@ const getPollerHosts = async (req, res, next) => {
                 poller_address: mappedServer?.address || "",
                 poller_server_type: mappedServer?.server_type || "",
                 count: 0,
-                data: {
-                    result: []
-                },
+                data: { result: [] },
                 meta: {
                     page,
                     limit,
                     total: 0,
                     totalPages: 1,
                     hostCacheLoaded: false,
-                    hostCacheRefreshing: pollerHostCountCache.isRefreshing,
-                    note: "Host cache is not ready yet. Returning immediately while cache refreshes in the background."
+                    hostCacheRefreshing: pollerHostCountCache.isRefreshing
                 }
             });
         }
@@ -822,10 +980,7 @@ const getPollerHosts = async (req, res, next) => {
                 hostCacheLoaded: true,
                 hostCacheFresh: Boolean(hasFreshCache),
                 hostCacheRefreshing: pollerHostCountCache.isRefreshing,
-                hostCacheUpdatedAt: pollerHostCountCache.updatedAt,
-                note: hasFreshCache
-                    ? "Hosts loaded from fresh poller host cache."
-                    : "Hosts loaded from stale poller host cache while refresh runs in the background."
+                hostCacheUpdatedAt: pollerHostCountCache.updatedAt
             }
         });
 
@@ -834,16 +989,9 @@ const getPollerHosts = async (req, res, next) => {
     }
 };
 
-/**
- * Fast-only selected poller service summary.
- *
- * IMPORTANT:
- * This does NOT scan all services.
- */
 const getPollerServiceSummary = async (req, res, next) => {
     try {
         const { pollerId } = req.params;
-
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 100;
 
@@ -876,8 +1024,7 @@ const getPollerServiceSummary = async (req, res, next) => {
                 limit,
                 total: 0,
                 totalPages: 1
-            },
-            note: "Fast mode only. Full service scan is disabled to keep Pollers page responsive."
+            }
         });
 
     } catch (error) {
@@ -918,6 +1065,7 @@ const getAllServices = async (req, res, next) => {
                 total: normalizedServices.length
             }
         });
+
     } catch (error) {
         return handleCentreonError(error, res, next);
     }
@@ -956,8 +1104,7 @@ const searchServicesGlobally = async (req, res, next) => {
                     headers: getCentreonHeaders(req)
                 });
 
-                const services = response.data?.result || [];
-                const normalizedServices = services.map(normalizeService);
+                const normalizedServices = (response.data?.result || []).map(normalizeService);
 
                 normalizedServices.forEach((serviceItem) => {
                     const key = serviceItem.id || `${serviceItem.host?.name}-${serviceItem.description}`;
@@ -1070,8 +1217,7 @@ const searchServicesGlobally = async (req, res, next) => {
             },
             debug: {
                 attempts: attemptResults
-            },
-            note: "Global search supports confirmed host fields and confirmed service.description field."
+            }
         });
 
     } catch (error) {
@@ -1097,8 +1243,7 @@ const getServicesByHost = async (req, res, next) => {
             headers: getCentreonHeaders(req)
         });
 
-        const services = response.data?.result || [];
-        const normalizedServices = services.map(normalizeService);
+        const normalizedServices = (response.data?.result || []).map(normalizeService);
 
         return res.json({
             success: true,
@@ -1108,13 +1253,14 @@ const getServicesByHost = async (req, res, next) => {
                 result: normalizedServices
             }
         });
+
     } catch (error) {
         return handleCentreonError(error, res, next);
     }
 };
 
 // ============================================================
-// PAGE-BASED STATUS SUMMARY
+// SUMMARY ENDPOINTS
 // ============================================================
 
 const getServiceStatusSummary = async (req, res, next) => {
@@ -1130,8 +1276,7 @@ const getServiceStatusSummary = async (req, res, next) => {
             headers: getCentreonHeaders(req)
         });
 
-        const services = response.data?.result || [];
-        const normalizedServices = services.map(normalizeService);
+        const normalizedServices = (response.data?.result || []).map(normalizeService);
 
         const criticalServices = normalizedServices.filter(service => service.statusCode === 2);
         const warningServices = normalizedServices.filter(service => service.statusCode === 1);
@@ -1166,9 +1311,9 @@ const getServiceStatusSummary = async (req, res, next) => {
                 page,
                 limit,
                 total: normalizedServices.length
-            },
-            note: "Page-based summary only. All Services means Critical + Warning + Unknown."
+            }
         });
+
     } catch (error) {
         return handleCentreonError(error, res, next);
     }
@@ -1203,10 +1348,7 @@ const getGlobalServiceStatusSummary = async (req, res, next) => {
                 cacheUpdatedAt: dashboardGlobalSummaryCache.updatedAt,
                 cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS,
                 lastError: dashboardGlobalSummaryCache.lastError
-            },
-            note: hasCachedCounts
-                ? "Global dashboard summary returned from cache. Cache refreshes in the background when stale."
-                : "Global dashboard summary cache is not ready yet. Refresh has started in the background."
+            }
         });
 
     } catch (error) {
@@ -1234,7 +1376,6 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
             dashboardGlobalSummaryCache.updatedAt &&
             now - dashboardGlobalSummaryCache.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
 
-        // Start/refresh cache in the background if missing or stale.
         if (!hasFreshCache && !dashboardGlobalSummaryCache.isRefreshing) {
             refreshDashboardGlobalSummaryCache(req);
         }
@@ -1268,8 +1409,7 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
                     cacheLoaded: false,
                     cacheFresh: false,
                     cacheRefreshing: dashboardGlobalSummaryCache.isRefreshing,
-                    cacheUpdatedAt: dashboardGlobalSummaryCache.updatedAt,
-                    note: "Global summary cache is not ready yet. Refresh has started in the background."
+                    cacheUpdatedAt: dashboardGlobalSummaryCache.updatedAt
                 }
             });
         }
@@ -1278,14 +1418,12 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
         const warningServices = dashboardGlobalSummaryCache.services.warning || [];
         const unknownServices = dashboardGlobalSummaryCache.services.unknown || [];
 
-        // Full active issue cache.
         const allActiveServices = [
             ...criticalServices,
             ...warningServices,
             ...unknownServices
         ];
 
-        // Apply host/service/q search to ALL active issue services first.
         let filteredAllStatusServices = allActiveServices;
 
         if (hostSearch || serviceSearch || qSearch) {
@@ -1323,9 +1461,6 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
             });
         }
 
-        // Important:
-        // Counts must be based on the searched active services,
-        // not on the selected card type.
         const filteredCritical = filteredAllStatusServices.filter(service => service.statusCode === 2);
         const filteredWarning = filteredAllStatusServices.filter(service => service.statusCode === 1);
         const filteredUnknown = filteredAllStatusServices.filter(service => service.statusCode === 3);
@@ -1337,18 +1472,12 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
             unknown: filteredUnknown.length
         };
 
-        // Now apply selected card type only for table result.
         let selectedServices = [];
 
-        if (type === "critical") {
-            selectedServices = filteredCritical;
-        } else if (type === "warning") {
-            selectedServices = filteredWarning;
-        } else if (type === "unknown") {
-            selectedServices = filteredUnknown;
-        } else {
-            selectedServices = filteredAllStatusServices;
-        }
+        if (type === "critical") selectedServices = filteredCritical;
+        else if (type === "warning") selectedServices = filteredWarning;
+        else if (type === "unknown") selectedServices = filteredUnknown;
+        else selectedServices = filteredAllStatusServices;
 
         const startIndex = (page - 1) * limit;
         const pagedServices = selectedServices.slice(startIndex, startIndex + limit);
@@ -1378,10 +1507,7 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
                 cacheFresh: Boolean(hasFreshCache),
                 cacheRefreshing: dashboardGlobalSummaryCache.isRefreshing,
                 cacheUpdatedAt: dashboardGlobalSummaryCache.updatedAt,
-                cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS,
-                note: hasFreshCache
-                    ? "Global summary list returned from fresh cache with active-issue search applied."
-                    : "Global summary list returned from stale cache with active-issue search applied while refresh runs in the background."
+                cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
             }
         });
 
@@ -1390,8 +1516,11 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
     }
 };
 
+// ============================================================
+// ACKNOWLEDGEMENT ACTIONS
+// ============================================================
+
 const resolveServiceResourceIds = async (req, targetHost, targetService) => {
-    // If frontend already sends IDs, no need to resolve.
     if (
         req.body.hostId !== undefined &&
         req.body.hostId !== null &&
@@ -1575,7 +1704,15 @@ const acknowledgeService = async (req, res, next) => {
             }
         );
 
-        // Do not let audit-log DB failure reverse a successful Centreon acknowledgement.
+        const cachePatchedCount = markDashboardCachedServiceAsAcknowledged({
+            hostId,
+            serviceId,
+            hostName: targetHost,
+            serviceDescription: targetService,
+            comment: acknowledgeComment,
+            actionBy
+        });
+
         try {
             await writeAuditLog({
                 host: targetHost,
@@ -1598,6 +1735,7 @@ const acknowledgeService = async (req, res, next) => {
             success: true,
             message: "Service acknowledged successfully.",
             auditLogged: true,
+            cachePatchedCount,
             resource: {
                 host: targetHost,
                 service: targetService,
@@ -1638,6 +1776,184 @@ const acknowledgeService = async (req, res, next) => {
     }
 };
 
+const unacknowledgeService = async (req, res, next) => {
+    const {
+        host,
+        service,
+        hostName,
+        serviceDescription
+    } = req.body;
+
+    const targetHost = host || hostName;
+    const targetService = service || serviceDescription;
+    const actionBy = getRequestUserName(req);
+
+    if (!targetHost || !targetService) {
+        return res.status(400).json({
+            success: false,
+            message: "host and service are required."
+        });
+    }
+
+    let resolvedResource = null;
+
+    try {
+        const { hostId, serviceId } = await resolveServiceResourceIds(
+            req,
+            targetHost,
+            targetService
+        );
+
+        resolvedResource = {
+            hostId,
+            serviceId
+        };
+
+        const payload = {
+            resources: [
+                {
+                    type: "service",
+                    id: serviceId,
+                    parent: {
+                        id: hostId
+                    }
+                }
+            ]
+        };
+
+        const centreonResponse = await sendCentreonUnacknowledgeRequest(req, payload);
+
+        const cachePatchedCount = markDashboardCachedServiceAsUnacknowledged({
+            hostId,
+            serviceId,
+            hostName: targetHost,
+            serviceDescription: targetService
+        });
+
+        try {
+            await writeAuditLog({
+                host: targetHost,
+                service: targetService,
+                logType: "UNACKNOWLEDGEMENT",
+                oldStatus: "ACKNOWLEDGED",
+                newStatus: "PENDING",
+                actionBy,
+                message: `Unacknowledged from GOC Dashboard by ${actionBy}`
+            });
+        } catch (logError) {
+            console.error("Unacknowledgement succeeded but audit log failed:", {
+                message: logError.message,
+                code: logError.code,
+                sqlMessage: logError.sqlMessage
+            });
+        }
+
+        return res.json({
+            success: true,
+            message: "Service unacknowledged successfully.",
+            cachePatchedCount,
+            resource: {
+                host: targetHost,
+                service: targetService,
+                hostId,
+                serviceId
+            },
+            centreon: centreonResponse.data
+        });
+
+    } catch (error) {
+        console.error("Unacknowledge failed:", {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message,
+            debug: error.debug,
+            resolvedResource
+        });
+
+        try {
+            await writeAuditLog({
+                host: targetHost,
+                service: targetService,
+                logType: "UNACKNOWLEDGEMENT_FAILED",
+                oldStatus: "ACKNOWLEDGED",
+                newStatus: "FAILED",
+                actionBy,
+                message: `Failed to unacknowledge ${targetHost} / ${targetService}: ${error.response?.data?.message || error.message}`
+            });
+        } catch (logError) {
+            console.error("Failed to write failed-unack audit log:", {
+                message: logError.message,
+                code: logError.code,
+                sqlMessage: logError.sqlMessage
+            });
+        }
+
+        return res.status(error.response?.status || 500).json({
+    success: false,
+    message: error.message || "Unacknowledge failed.",
+    status: error.response?.status,
+    data: error.response?.data,
+    debug: error.debug || null
+});
+    }
+};
+
+// ============================================================
+// DEBUG ENDPOINT
+// ============================================================
+
+const testMonitoringServers = async (req, res, next) => {
+    try {
+        const allServers = [];
+        const limit = Number(req.query.limit) || 1000;
+        let page = 1;
+        let counted = 0;
+        let totalFromCentreon = 0;
+
+        while (true) {
+            const endpoint = `/configuration/monitoring-servers?page=${page}&limit=${limit}`;
+
+            console.log("Centreon testMonitoringServers URL:", endpoint);
+
+            const response = await centreonAxios.get(endpoint, {
+                headers: getCentreonHeaders(req)
+            });
+
+            const servers =
+                response.data?.result ||
+                response.data?.data?.result ||
+                response.data?.items ||
+                response.data?.data ||
+                [];
+
+            totalFromCentreon =
+                response.data?.meta?.total ||
+                response.data?.data?.meta?.total ||
+                servers.length;
+
+            allServers.push(...servers);
+            counted += servers.length;
+
+            if (counted >= totalFromCentreon || servers.length === 0) break;
+            page += 1;
+        }
+
+        return res.json({
+            success: true,
+            count: allServers.length,
+            data: {
+                result: allServers
+            },
+            meta: {
+                total: allServers.length
+            }
+        });
+
+    } catch (error) {
+        return handleCentreonError(error, res, next);
+    }
+};
+
 // ============================================================
 // EXPORTS
 // ============================================================
@@ -1656,5 +1972,6 @@ module.exports = {
     getGlobalServiceStatusSummary,
     getGlobalServiceStatusSummaryList,
     acknowledgeService,
+    unacknowledgeService,
     testMonitoringServers
 };
