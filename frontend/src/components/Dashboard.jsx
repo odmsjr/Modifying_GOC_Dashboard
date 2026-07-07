@@ -1798,74 +1798,73 @@ export default function Dashboard() {
                                                     </tr>
                                                 ) : (
                                                     filteredPollerServices.map((service, idx) => {
-    const hostName = service.host?.name || service.host?.display_name;
-    const serviceDescription = service.description || service.display_name;
+                                                        const hostName = service.host?.name || service.host?.display_name;
+                                                        const serviceDescription = service.description || service.display_name;
 
-    const ackKey = getAckKey(
-        hostName,
-        serviceDescription,
-        service.host?.id,
-        service.id
-    );
-
-    const acknowledged = isServiceAcknowledged(service);
-
-    return (
-        <tr
-            key={service.id || idx}
-            className={acknowledged ? 'service-row-acknowledged' : ''}
-        >
-            <td className="host-name">
-                {hostName || 'N/A'}
-            </td>
-
-            <td className="service-name">
-                {serviceDescription || 'N/A'}
-            </td>
-
-            <td className="service-output">
-                {service.output || 'No output details provided.'}
-            </td>
-
-            <td>
-                <span className={`status-text ${service.statusName?.toLowerCase()}`}>
-                    {service.statusName}
-                </span>
-            </td>
-
-            <td className="ack-cell">
-                {acknowledged ? (
-                    <button
-                        className="ack-badge ack-success-badge"
-                        disabled={unackInProgressIds.has(ackKey)}
-                        onClick={() => handleUnacknowledge(
-                            hostName,
-                            serviceDescription,
-                            service.host?.id,
-                            service.id
-                        )}
-                        title="Click to remove acknowledgement"
-                    >
-                        {unackInProgressIds.has(ackKey) ? 'REMOVING...' : 'ACKNOWLEDGED'}
-                    </button>
-                ) : (
-                    <button
-                        className="ack-btn ack-action-btn"
-                        disabled={ackInProgressIds.has(ackKey)}
-                        onClick={() => handleAcknowledge(
-                            hostName,
-                            serviceDescription,
-                            service.host?.id,
-                            service.id
-                        )}
-                    >
-                        {ackInProgressIds.has(ackKey) ? 'ACKING...' : 'ACKNOWLEDGE'}
-                    </button>
-                )}
-            </td>
-        </tr>
-    );
-})
+                                                        const ackKey = getAckKey(
+                                                            hostName,
+                                                            serviceDescription,
+                                                            service.host?.id,
+                                                            service.id
+                                                        );
+                                                        const acknowledged = isServiceAcknowledged(service);
+                                                        
+                                                        return (
+                                                        <tr
+                                                            key={service.id || idx}
+                                                            className={acknowledged ? 'service-row-acknowledged' : ''}
+                                                        >
+                                                            <td className="host-name">
+                                                                {hostName || 'N/A'}
+                                                                </td>
+                                                            
+                                                            <td className="service-name">
+                                                                {serviceDescription || 'N/A'}
+                                                            </td>
+                                                            
+                                                            <td className="service-output">
+                                                                {service.output || 'No output details provided.'}
+                                                            </td>
+                                                            
+                                                            <td>
+                                                                <span className={`status-text ${service.statusName?.toLowerCase()}`}>
+                                                                    {service.statusName}
+                                                                </span>
+                                                            </td>
+                                                            
+                                                            <td className="ack-cell">
+                                                                {acknowledged ? (
+                                            <button
+                                                className="ack-badge ack-success-badge"
+                                                disabled={unackInProgressIds.has(ackKey)}
+                                                onClick={() => handleUnacknowledge(
+                                                    hostName,
+                                                    serviceDescription,
+                                                    service.host?.id,
+                                                    service.id
+                                                )}
+                                                title="Click to remove acknowledgement"
+                                                >
+                                                    {unackInProgressIds.has(ackKey) ? 'REMOVING...' : 'ACKNOWLEDGED'}
+                                            </button>
+                                        ) : (
+                                            <button
+                                                className="ack-btn ack-action-btn"
+                                                disabled={ackInProgressIds.has(ackKey)}
+                                                onClick={() => handleAcknowledge(
+                                                    hostName,
+                                                    serviceDescription,
+                                                    service.host?.id,
+                                                    service.id
+                                                )}
+                                            >
+                                                {ackInProgressIds.has(ackKey) ? 'ACKING...' : 'ACKNOWLEDGE'}
+                                            </button>
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })
                                                 )}
                                             </tbody>
                                         </table>
