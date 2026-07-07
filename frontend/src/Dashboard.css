@@ -48,21 +48,29 @@ body {
 }
 
 .logo {
-    padding: 24px 20px;
+    padding: 18px 16px;
     border-bottom: 1px solid #30363d;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
+    min-height: 76px;
+    overflow: hidden;
 }
 
-.logo-icon {
-    font-size: 24px;
+.logo-image {
+    width: 95px;
+    height: auto;
+    object-fit: contain;
+    flex-shrink: 0;
+    background-color: #ffffff;
 }
 
 .logo-text {
-    font-size: 18px;
-    font-weight: 600;
+    font-size: 16px;
+    font-weight: 700;
     color: #ffffff;
+    line-height: 1.2;
+    white-space: nowrap;
 }
 
 .nav-menu {

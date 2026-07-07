@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Sla from "./SLA";
 import Logs from "./Logs";
 import "../Dashboard.css";
+import cevaLogo from "../assets/CEVA.png";
 
 const BASE_API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -1096,7 +1097,7 @@ export default function Dashboard() {
         <div className="app-container">
             <aside className="sidebar">
                 <div className="logo">
-                    <span className="logo-icon">📊</span>
+                    <img src={cevaLogo} alt="CEVA Logo" className="logo-image" />
                     <span className="logo-text">GOC Dashboard</span>
                 </div>
 
@@ -1129,7 +1130,7 @@ export default function Dashboard() {
             <main className="main-content">
                 <header className="content-header">
                     <h1>
-                        {location.pathname === '/dashboard' && 'Dashboard Overview'}
+                        {location.pathname === '/dashboard' && 'Centreon Service Status Dashboard'}
                         {location.pathname === '/pollers' && 'Pollers Overview'}
                         {location.pathname === '/sla' && 'SLA Metrics'}
                         {location.pathname === '/logs' && 'System Audit Log'}
