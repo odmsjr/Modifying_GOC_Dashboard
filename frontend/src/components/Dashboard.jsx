@@ -754,32 +754,26 @@ export default function Dashboard() {
     // MANUAL REFRESH
     // ============================================================
     const handleGlobalManualRefresh = () => {
-        const suppressSummaryCardUpdate =
-            location.pathname === '/dashboard' &&
-            filters.poller === 'all' &&
-            Boolean(debouncedHostSearch || debouncedServiceSearch);
+    refreshDashboardData();
+    fetchPollersRoster();
 
-        refreshDashboardData();
-        fetchGlobalDashboardSummary(!suppressSummaryCardUpdate);
-        fetchPollersRoster();
+    if (
+        location.pathname === '/dashboard' &&
+        filters.poller === 'all'
+    ) {
+        fetchDashboardGlobalServiceList(
+            currentTableType,
+            servicePage,
+            serviceLimit,
+            debouncedHostSearch,
+            debouncedServiceSearch
+        );
+    }
 
-        if (
-            location.pathname === '/dashboard' &&
-            filters.poller === 'all'
-        ) {
-            fetchDashboardGlobalServiceList(
-                currentTableType,
-                servicePage,
-                serviceLimit,
-                debouncedHostSearch,
-                debouncedServiceSearch
-            );
-        }
-
-        if (selectedPollerId) {
-            fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
-        }
-    };
+    if (selectedPollerId) {
+        fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
+    }
+};
 
     // ============================================================
     // LIFECYCLE
