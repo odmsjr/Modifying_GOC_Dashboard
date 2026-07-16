@@ -46,7 +46,7 @@ export default function Login() {
             if (response.ok && data.success) {
                 // Save token metrics received from server
                 localStorage.setItem('centreon_auth_token', data.token);
-                localStorage.setItem('centreon_user', username);
+                localStorage.setItem('centreon_username', username); // <-- CHANGED: was 'centreon_user'
                 localStorage.setItem('centreon_expires', data.expires.toString());
                 
                 // Route seamlessly into the platform
@@ -64,7 +64,7 @@ export default function Login() {
                 console.warn('Backend server unreachable. Falling back to local sandbox profile.');
                 
                 localStorage.setItem('centreon_auth_token', 'mock-local-secure-token');
-                localStorage.setItem('centreon_user', username);
+                localStorage.setItem('centreon_username', username); // <-- CHANGED: was 'centreon_user'
                 localStorage.setItem('centreon_expires', (Date.now() + 2 * 60 * 60 * 1000).toString());
                 
                 navigate('/dashboard');

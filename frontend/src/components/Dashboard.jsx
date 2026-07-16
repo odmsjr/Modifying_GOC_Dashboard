@@ -1,3 +1,4 @@
+// frontend/src/Dashboard.js
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Sla from "./SLA";
@@ -18,6 +19,7 @@ export default function Dashboard() {
     const [currentTableType, setCurrentTableType] = useState('all');
     const [filters, setFilters] = useState({ host: '', service: '', poller: 'all' });
     const [showAllStatusesForPoller, setShowAllStatusesForPoller] = useState(true);
+    const [statusFilter, setStatusFilter] = useState('unhandled'); // 'unhandled', 'acknowledged', 'all'
 
     // --- SERVICE PAGINATION STATE ---
     const [servicePage, setServicePage] = useState(1);
@@ -59,8 +61,9 @@ export default function Dashboard() {
     const [ackInProgressIds, setAckInProgressIds] = useState(new Set());
     const [unackInProgressIds, setUnackInProgressIds] = useState(new Set());
 
-    // Prevent stale search requests from overwriting newer results.
+    // Prevent stale search/status requests from overwriting newer results.
     const dashboardGlobalListRequestIdRef = useRef(0);
+    const dashboardSearchActiveRef = useRef(false);
 
     const [cachedCritical, setCachedCritical] = useState([]);
     const [cachedWarning, setCachedWarning] = useState([]);
@@ -104,7 +107,6 @@ export default function Dashboard() {
     const [showAckModal, setShowAckModal] = useState(false);
     const [ackComment, setAckComment] = useState('');
     const [pendingAck, setPendingAck] = useState(null);
-
 
     // ============================================================
     // NORMALIZER HELPERS
@@ -166,10 +168,39 @@ export default function Dashboard() {
         return 'unknown';
     };
 
-    const buildServiceCounts = (services) => {
-        const critical = services.filter(service => service.statusCode === 2).length;
-        const warning = services.filter(service => service.statusCode === 1).length;
-        const unknown = services.filter(service => service.statusCode === 3).length;
+    const extractIpFromText = (text = '') => {
+        const match = String(text).match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+        return match ? match[0] : null;
+    };
+
+    const isServiceAcknowledged = useCallback((service) => {
+        const acknowledgement = service.acknowledgement;
+
+        return Boolean(
+            service.is_acknowledged === true ||
+            service.is_acknowledged === 1 ||
+            service.is_acknowledged === '1' ||
+            service.is_acknowledged === 'true' ||
+            service.acknowledged === true ||
+            service.acknowledged === 1 ||
+            service.acknowledged === '1' ||
+            service.acknowledged === 'true' ||
+            acknowledgement?.is_acknowledged === true ||
+            acknowledgement?.is_acknowledged === 1 ||
+            acknowledgement?.is_acknowledged === '1' ||
+            acknowledgement?.is_acknowledged === 'true' ||
+            Boolean(acknowledgement?.author) ||
+            Boolean(acknowledgement?.comment) ||
+            Boolean(acknowledgement?.entry_time)
+        );
+    }, []);
+
+    const buildServiceCounts = useCallback((services) => {
+        const unhandledServices = services.filter(service => !isServiceAcknowledged(service));
+
+        const critical = unhandledServices.filter(service => service.statusCode === 2).length;
+        const warning = unhandledServices.filter(service => service.statusCode === 1).length;
+        const unknown = unhandledServices.filter(service => service.statusCode === 3).length;
 
         return {
             allActiveIssues: critical + warning + unknown,
@@ -177,7 +208,7 @@ export default function Dashboard() {
             warning,
             unknown
         };
-    };
+    }, [isServiceAcknowledged]);
 
     // ============================================================
     // ROUTER RESET
@@ -234,6 +265,18 @@ export default function Dashboard() {
         return () => clearTimeout(timer);
     }, [filters.service]);
 
+    useEffect(() => {
+        dashboardSearchActiveRef.current =
+            location.pathname === '/dashboard' &&
+            filters.poller === 'all' &&
+            Boolean(debouncedHostSearch || debouncedServiceSearch);
+    }, [
+        location.pathname,
+        filters.poller,
+        debouncedHostSearch,
+        debouncedServiceSearch
+    ]);
+
     // ============================================================
     // GLOBAL DASHBOARD SUMMARY FETCH
     // ============================================================
@@ -258,7 +301,12 @@ export default function Dashboard() {
 
             setIsRefreshingGlobalSummary(Boolean(payload.refreshing));
 
-            if (shouldUpdateCards && payload.counts && payload.cached) {
+            if (
+                shouldUpdateCards &&
+                !dashboardSearchActiveRef.current &&
+                payload.counts &&
+                payload.cached
+            ) {
                 setGlobalDashboardCounts({
                     allActiveIssues: payload.counts.allActiveIssues,
                     critical: payload.counts.critical,
@@ -269,7 +317,9 @@ export default function Dashboard() {
 
             if (payload.meta?.cacheRefreshing && !payload.meta?.cacheFresh) {
                 setTimeout(() => {
-                    fetchGlobalDashboardSummary(shouldUpdateCards);
+                    if (!dashboardSearchActiveRef.current) {
+                        fetchGlobalDashboardSummary(shouldUpdateCards);
+                    }
                 }, 10000);
             }
 
@@ -283,7 +333,8 @@ export default function Dashboard() {
         page = 1,
         limit = 100,
         hostSearch = '',
-        serviceSearch = ''
+        serviceSearch = '',
+        isBackground = false
     ) => {
         const requestId = dashboardGlobalListRequestIdRef.current + 1;
         dashboardGlobalListRequestIdRef.current = requestId;
@@ -291,7 +342,20 @@ export default function Dashboard() {
         const isLatestRequest = () => dashboardGlobalListRequestIdRef.current === requestId;
 
         try {
-            setIsLoadingDashboardGlobalList(true);
+            if (!isBackground) {
+                setIsLoadingDashboardGlobalList(true);
+            }
+
+            // Clear stale table data only on non-background requests to avoid flicker
+            if (!isBackground) {
+                setDashboardGlobalServices([]);
+                setDashboardGlobalMeta({
+                    page,
+                    limit,
+                    total: 0,
+                    totalPages: 1
+                });
+            }
 
             const token = localStorage.getItem('centreon_auth_token');
 
@@ -330,6 +394,27 @@ export default function Dashboard() {
 
             setIsRefreshingGlobalSummary(Boolean(payload.refreshing));
 
+            const rawResults = payload.data?.result || [];
+            const uniqueMap = new Map();
+
+            rawResults.forEach(service => {
+                const serviceKey = String(
+                    service.id ??
+                    service.service_id ??
+                    `${service.host?.id || service.host?.name || 'host'}-${service.description || service.display_name || 'service'}`
+                );
+
+                uniqueMap.set(serviceKey, service);
+            });
+
+            const uniqueResults = Array.from(uniqueMap.values());
+
+            const shouldRetryList =
+                payload.refreshing === true ||
+                payload.meta?.cacheRefreshing === true ||
+                payload.cached === false ||
+                payload.meta?.cacheLoaded === false;
+
             if (payload.cached) {
                 const hasSearch = Boolean(hostSearch || serviceSearch);
 
@@ -348,15 +433,16 @@ export default function Dashboard() {
                 }
             }
 
-            setDashboardGlobalServices(payload.data?.result || []);
+            setDashboardGlobalServices(uniqueResults);
+
             setDashboardGlobalMeta(payload.meta || {
                 page,
                 limit,
-                total: 0,
+                total: uniqueResults.length,
                 totalPages: 1
             });
 
-            if (payload.meta?.cacheRefreshing && !payload.meta?.cacheFresh) {
+            if (shouldRetryList) {
                 setTimeout(() => {
                     if (isLatestRequest()) {
                         fetchDashboardGlobalServiceList(
@@ -364,7 +450,8 @@ export default function Dashboard() {
                             page,
                             limit,
                             hostSearch,
-                            serviceSearch
+                            serviceSearch,
+                            isBackground
                         );
                     }
                 }, 10000);
@@ -377,16 +464,18 @@ export default function Dashboard() {
 
             console.error("Error fetching dashboard global service list:", error);
 
-            setDashboardGlobalServices([]);
-            setDashboardGlobalMeta({
-                page,
-                limit,
-                total: 0,
-                totalPages: 1
-            });
+            if (!isBackground) {
+                setDashboardGlobalServices([]);
+                setDashboardGlobalMeta({
+                    page,
+                    limit,
+                    total: 0,
+                    totalPages: 1
+                });
+            }
 
         } finally {
-            if (isLatestRequest()) {
+            if (isLatestRequest() && !isBackground) {
                 setIsLoadingDashboardGlobalList(false);
             }
         }
@@ -395,7 +484,7 @@ export default function Dashboard() {
     // ============================================================
     // DASHBOARD FETCH
     // ============================================================
-    const refreshDashboardData = useCallback(async () => {
+    const refreshDashboardData = useCallback(async (isBackground = false) => {
         const usingDashboardGlobalCache =
             location.pathname === '/dashboard' &&
             filters.poller === 'all';
@@ -403,10 +492,12 @@ export default function Dashboard() {
         const hasDashboardSearch = Boolean(debouncedHostSearch || debouncedServiceSearch);
 
         try {
-            if (usingDashboardGlobalCache) {
-                setIsLoadingServices(false);
-            } else {
-                setIsLoadingServices(true);
+            if (!isBackground) {
+                if (usingDashboardGlobalCache) {
+                    setIsLoadingServices(false);
+                } else {
+                    setIsLoadingServices(true);
+                }
             }
 
             fetchGlobalDashboardSummary(
@@ -485,20 +576,15 @@ export default function Dashboard() {
                 setCachedSearchResults([]);
             }
 
-            const criticalCount = summaryPayload.counts?.critical ?? criticals.length;
-            const warningCount = summaryPayload.counts?.warning ?? warnings.length;
-            const unknownCount = summaryPayload.counts?.unknown ?? unknowns.length;
-
-            const allActiveIssues =
-                summaryPayload.counts?.allActiveIssues ??
-                summaryPayload.counts?.allServices ??
-                criticalCount + warningCount + unknownCount;
+            const unhandledCritical = criticals.filter(service => !isServiceAcknowledged(service)).length;
+            const unhandledWarning = warnings.filter(service => !isServiceAcknowledged(service)).length;
+            const unhandledUnknown = unknowns.filter(service => !isServiceAcknowledged(service)).length;
 
             setCounts({
-                allActiveIssues,
-                critical: criticalCount,
-                warning: warningCount,
-                unknown: unknownCount
+                allActiveIssues: unhandledCritical + unhandledWarning + unhandledUnknown,
+                critical: unhandledCritical,
+                warning: unhandledWarning,
+                unknown: unhandledUnknown
             });
 
             setServiceMeta(
@@ -525,7 +611,7 @@ export default function Dashboard() {
         } catch (e) {
             console.error("Failed syncing infrastructure metrics:", e);
         } finally {
-            if (!usingDashboardGlobalCache) {
+            if (!isBackground && !usingDashboardGlobalCache) {
                 setIsLoadingServices(false);
             }
         }
@@ -536,7 +622,8 @@ export default function Dashboard() {
         debouncedServiceSearch,
         servicePage,
         serviceLimit,
-        fetchGlobalDashboardSummary
+        fetchGlobalDashboardSummary,
+        isServiceAcknowledged
     ]);
 
     // ============================================================
@@ -581,12 +668,6 @@ export default function Dashboard() {
             }));
 
             setCachedPollers(mappedPollers);
-
-            if (payload.meta?.hostCountRefreshing && !payload.meta?.hostCountLoaded) {
-                setTimeout(() => {
-                    fetchPollersRoster();
-                }, 5000);
-            }
 
         } catch (error) {
             console.error('Error fetching pollers roster:', error);
@@ -675,14 +756,16 @@ export default function Dashboard() {
         } finally {
             setIsLoadingPollerServices(false);
         }
-    }, []);
+    }, [buildServiceCounts]);
 
-    const fetchPollerHosts = useCallback(async (pollerId, page = 1, limit = pollerHostLimit) => {
+    const fetchPollerHosts = useCallback(async (pollerId, page = 1, limit = pollerHostLimit, isBackground = false) => {
         try {
             if (!pollerId) return;
 
-            setIsLoadingPollerHosts(true);
-            setIsLoadingPollerServices(true);
+            if (!isBackground) {
+                setIsLoadingPollerHosts(true);
+                setIsLoadingPollerServices(true);
+            }
 
             const token = localStorage.getItem('centreon_auth_token');
 
@@ -721,7 +804,7 @@ export default function Dashboard() {
                 });
 
                 setTimeout(() => {
-                    fetchPollerHosts(pollerId, page, limit);
+                    fetchPollerHosts(pollerId, page, limit, isBackground);
                 }, 5000);
 
                 return;
@@ -737,7 +820,7 @@ export default function Dashboard() {
                     warning: 0,
                     unknown: 0
                 });
-                setIsLoadingPollerServices(false);
+                if (!isBackground) setIsLoadingPollerServices(false);
             }
 
         } catch (error) {
@@ -749,9 +832,11 @@ export default function Dashboard() {
                 warning: 0,
                 unknown: 0
             });
-            setIsLoadingPollerServices(false);
+            if (!isBackground) setIsLoadingPollerServices(false);
         } finally {
-            setIsLoadingPollerHosts(false);
+            if (!isBackground) {
+                setIsLoadingPollerHosts(false);
+            }
         }
     }, [pollerHostLimit, fetchServicesForVisibleHosts]);
 
@@ -759,7 +844,7 @@ export default function Dashboard() {
     // MANUAL REFRESH
     // ============================================================
     const handleGlobalManualRefresh = () => {
-        refreshDashboardData();
+        refreshDashboardData(false);
         fetchPollersRoster();
 
         if (
@@ -771,12 +856,13 @@ export default function Dashboard() {
                 servicePage,
                 serviceLimit,
                 debouncedHostSearch,
-                debouncedServiceSearch
+                debouncedServiceSearch,
+                false
             );
         }
 
         if (selectedPollerId) {
-            fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
+            fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit, false);
         }
     };
 
@@ -791,17 +877,18 @@ export default function Dashboard() {
             return;
         }
 
-        refreshDashboardData();
+        refreshDashboardData(false);
         fetchPollersRoster();
 
+        // Auto-refresh every 10 minutes (600,000 ms) with background flag
         const heartbeat = setInterval(() => {
-            refreshDashboardData();
+            refreshDashboardData(true);
             fetchPollersRoster();
 
             if (selectedPollerId) {
-                fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
+                fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit, true);
             }
-        }, 300000);
+        }, 600000);
 
         return () => clearInterval(heartbeat);
     }, [
@@ -817,7 +904,7 @@ export default function Dashboard() {
 
     useEffect(() => {
         if (location.pathname === '/pollers' && selectedPollerId) {
-            fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
+            fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit, false);
         }
     }, [location.pathname, selectedPollerId, pollerHostPage, pollerHostLimit, fetchPollerHosts]);
 
@@ -854,7 +941,8 @@ export default function Dashboard() {
                 servicePage,
                 serviceLimit,
                 debouncedHostSearch,
-                debouncedServiceSearch
+                debouncedServiceSearch,
+                false
             );
         }
     }, [
@@ -892,9 +980,20 @@ export default function Dashboard() {
         }
 
         if (activePollerContext !== 'all') {
-            const critical = cachedCritical.filter(s => s.poller_name === activePollerContext).length;
-            const warning = cachedWarning.filter(s => s.poller_name === activePollerContext).length;
-            const unknown = cachedUnknown.filter(s => s.poller_name === activePollerContext).length;
+            const critical = cachedCritical.filter(s =>
+                s.poller_name === activePollerContext &&
+                !isServiceAcknowledged(s)
+            ).length;
+
+            const warning = cachedWarning.filter(s =>
+                s.poller_name === activePollerContext &&
+                !isServiceAcknowledged(s)
+            ).length;
+
+            const unknown = cachedUnknown.filter(s =>
+                s.poller_name === activePollerContext &&
+                !isServiceAcknowledged(s)
+            ).length;
 
             return {
                 allActiveIssues: critical + warning + unknown,
@@ -914,11 +1013,13 @@ export default function Dashboard() {
         counts,
         cachedCritical,
         cachedWarning,
-        cachedUnknown
+        cachedUnknown,
+        isServiceAcknowledged
     ]);
 
     const isSearchMode = Boolean(debouncedHostSearch || debouncedServiceSearch);
 
+    // Core filtering: by status, severity, host/service/poller
     const filteredServices = useMemo(() => {
         let source = [];
 
@@ -942,6 +1043,15 @@ export default function Dashboard() {
             if (currentTableType === 'unknown') source = cachedUnknown;
         }
 
+        // Apply status filter (unhandled / acknowledged / all)
+        source = source.filter(item => {
+            const ack = isServiceAcknowledged(item);
+            if (statusFilter === 'unhandled') return !ack;
+            if (statusFilter === 'acknowledged') return ack;
+            return true; // 'all'
+        });
+
+        // Apply host, service, poller filters
         return source.filter(item => {
             const matchHost =
                 !filters.host ||
@@ -968,28 +1078,47 @@ export default function Dashboard() {
         cachedCritical,
         cachedWarning,
         cachedUnknown,
-        filters
+        filters,
+        statusFilter,
+        isServiceAcknowledged
     ]);
 
     const dashboardTableServices = useMemo(() => {
-        if (dashboardGlobalListMode) {
-            return dashboardGlobalServices;
-        }
+        const source = dashboardGlobalListMode
+            ? dashboardGlobalServices
+            : filteredServices;
 
-        return filteredServices;
+        // Apply status filter again (for global list, we already have all, so we filter here)
+        // But global list already contains all; we apply the status filter on top.
+        return source.filter(service => {
+            const ack = isServiceAcknowledged(service);
+            if (statusFilter === 'unhandled') return !ack;
+            if (statusFilter === 'acknowledged') return ack;
+            return true;
+        });
     }, [
         dashboardGlobalListMode,
         dashboardGlobalServices,
-        filteredServices
+        filteredServices,
+        statusFilter,
+        isServiceAcknowledged
     ]);
 
     const filteredPollerServices = useMemo(() => {
-        if (currentTableType === 'all') return pollerServices;
-        if (currentTableType === 'critical') return pollerServices.filter(service => service.statusCode === 2);
-        if (currentTableType === 'warning') return pollerServices.filter(service => service.statusCode === 1);
-        if (currentTableType === 'unknown') return pollerServices.filter(service => service.statusCode === 3);
-        return pollerServices;
-    }, [pollerServices, currentTableType]);
+        let services = pollerServices;
+        if (currentTableType === 'all') services = pollerServices;
+        else if (currentTableType === 'critical') services = pollerServices.filter(service => service.statusCode === 2);
+        else if (currentTableType === 'warning') services = pollerServices.filter(service => service.statusCode === 1);
+        else if (currentTableType === 'unknown') services = pollerServices.filter(service => service.statusCode === 3);
+
+        // Apply status filter
+        return services.filter(service => {
+            const ack = isServiceAcknowledged(service);
+            if (statusFilter === 'unhandled') return !ack;
+            if (statusFilter === 'acknowledged') return ack;
+            return true;
+        });
+    }, [pollerServices, currentTableType, statusFilter, isServiceAcknowledged]);
 
     // ============================================================
     // PAGINATION HELPERS
@@ -1030,8 +1159,8 @@ export default function Dashboard() {
     };
 
     const handlePollerPageSizeChange = (e) => {
-    setPollerHostLimit(Number(e.target.value));
-    setPollerHostPage(1);
+        setPollerHostLimit(Number(e.target.value));
+        setPollerHostPage(1);
     };
 
     // ============================================================
@@ -1041,28 +1170,6 @@ export default function Dashboard() {
         return String(
             serviceId ??
             `${hostId || ''}-${hostName || ''}-${serviceDescription || ''}`
-        );
-    };
-
-    const isServiceAcknowledged = (service) => {
-        const acknowledgement = service.acknowledgement;
-
-        return Boolean(
-            service.is_acknowledged === true ||
-            service.is_acknowledged === 1 ||
-            service.is_acknowledged === '1' ||
-            service.is_acknowledged === 'true' ||
-            service.acknowledged === true ||
-            service.acknowledged === 1 ||
-            service.acknowledged === '1' ||
-            service.acknowledged === 'true' ||
-            acknowledgement?.is_acknowledged === true ||
-            acknowledgement?.is_acknowledged === 1 ||
-            acknowledgement?.is_acknowledged === '1' ||
-            acknowledgement?.is_acknowledged === 'true' ||
-            Boolean(acknowledgement?.author) ||
-            Boolean(acknowledgement?.comment) ||
-            Boolean(acknowledgement?.entry_time)
         );
     };
 
@@ -1176,7 +1283,14 @@ export default function Dashboard() {
         setCachedSearchResults(prev => prev.map(patchService));
     }, []);
 
-    const handleAcknowledge = async (hostName, serviceDescription, hostId = null, serviceId = null, customComment = null) => {
+    const handleAcknowledge = async (
+        hostName,
+        serviceDescription,
+        hostId = null,
+        serviceId = null,
+        hostAddress = null,
+        customComment = null
+    ) => {
         const ackKey = getAckKey(hostName, serviceDescription, hostId, serviceId);
 
         try {
@@ -1187,16 +1301,23 @@ export default function Dashboard() {
             });
 
             const token = localStorage.getItem('centreon_auth_token');
+            
+            // Get the username from localStorage or use a default
+            const username = localStorage.getItem('centreon_username') || 'Unknown User';
 
             const payload = {
                 host: hostName,
                 service: serviceDescription,
                 hostId,
-                serviceId
+                serviceId,
+                hostAddress
             };
 
+            // Use custom comment if provided, otherwise use "Acknowledged By {username}"
             if (customComment) {
                 payload.comment = customComment;
+            } else {
+                payload.comment = `Acknowledged By ${username}`;
             }
 
             const response = await fetch(`${BASE_API_URL}/api/centreon/acknowledge`, {
@@ -1218,7 +1339,7 @@ export default function Dashboard() {
             setLastUpdated(new Date().toLocaleTimeString());
 
             if (!dashboardGlobalListMode) {
-                refreshDashboardData();
+                refreshDashboardData(true);
             }
 
         } catch (error) {
@@ -1232,7 +1353,13 @@ export default function Dashboard() {
         }
     };
 
-    const handleUnacknowledge = async (hostName, serviceDescription, hostId = null, serviceId = null) => {
+    const handleUnacknowledge = async (
+        hostName,
+        serviceDescription,
+        hostId = null,
+        serviceId = null,
+        hostAddress = null
+    ) => {
         const ackKey = getAckKey(hostName, serviceDescription, hostId, serviceId);
 
         try {
@@ -1254,7 +1381,8 @@ export default function Dashboard() {
                     host: hostName,
                     service: serviceDescription,
                     hostId,
-                    serviceId
+                    serviceId,
+                    hostAddress
                 })
             });
 
@@ -1268,7 +1396,7 @@ export default function Dashboard() {
             setLastUpdated(new Date().toLocaleTimeString());
 
             if (!dashboardGlobalListMode) {
-                refreshDashboardData();
+                refreshDashboardData(true);
             }
 
         } catch (error) {
@@ -1340,7 +1468,9 @@ export default function Dashboard() {
                         <div
                             className={`stat-card all ${currentTableType === 'all' ? 'active' : ''}`}
                             onClick={() => {
+                                setDashboardGlobalServices([]);
                                 setCurrentTableType('all');
+
                                 if (location.pathname === '/dashboard') {
                                     setServicePage(1);
                                     setShowAllStatusesForPoller(true);
@@ -1354,7 +1484,9 @@ export default function Dashboard() {
                         <div
                             className={`stat-card critical ${currentTableType === 'critical' ? 'active' : ''}`}
                             onClick={() => {
+                                setDashboardGlobalServices([]);
                                 setCurrentTableType('critical');
+
                                 if (location.pathname === '/dashboard') {
                                     setServicePage(1);
                                     setShowAllStatusesForPoller(false);
@@ -1368,7 +1500,9 @@ export default function Dashboard() {
                         <div
                             className={`stat-card warning ${currentTableType === 'warning' ? 'active' : ''}`}
                             onClick={() => {
+                                setDashboardGlobalServices([]);
                                 setCurrentTableType('warning');
+
                                 if (location.pathname === '/dashboard') {
                                     setServicePage(1);
                                     setShowAllStatusesForPoller(false);
@@ -1382,7 +1516,9 @@ export default function Dashboard() {
                         <div
                             className={`stat-card unknown ${currentTableType === 'unknown' ? 'active' : ''}`}
                             onClick={() => {
+                                setDashboardGlobalServices([]);
                                 setCurrentTableType('unknown');
+
                                 if (location.pathname === '/dashboard') {
                                     setServicePage(1);
                                     setShowAllStatusesForPoller(false);
@@ -1441,6 +1577,23 @@ export default function Dashboard() {
                                             ))}
                                         </select>
                                     </div>
+
+                                    {/* NEW STATUS FILTER DROPDOWN */}
+                                    <div className="filter-input-group-compact">
+                                        <label>STATUS</label>
+                                        <select
+                                            className="filter-select-compact"
+                                            value={statusFilter}
+                                            onChange={(e) => {
+                                                setStatusFilter(e.target.value);
+                                                setServicePage(1);
+                                            }}
+                                        >
+                                            <option value="unhandled">Unhandled Problems</option>
+                                            <option value="acknowledged">Acknowledged</option>
+                                            <option value="all">All</option>
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1476,8 +1629,8 @@ export default function Dashboard() {
 
                                     <div className="dashboard-pagination-controls">
                                         <span className="dashboard-pagination-label">Show:</span>
-                                        <select 
-                                            className="dashboard-page-size-select" 
+                                        <select
+                                            className="dashboard-page-size-select"
                                             value={serviceLimit}
                                             onChange={handlePageSizeChange}
                                             disabled={isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)}
@@ -1496,8 +1649,8 @@ export default function Dashboard() {
                                         </select>
 
                                         <div className="dashboard-pagination-buttons">
-                                            <button 
-                                                className="dashboard-page-btn" 
+                                            <button
+                                                className="dashboard-page-btn"
                                                 onClick={() => goToPage(servicePage - 1)}
                                                 disabled={servicePage <= 1 || totalPages === 0 || isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)}
                                             >
@@ -1508,8 +1661,8 @@ export default function Dashboard() {
                                                 Page {totalPages === 0 ? 0 : servicePage} of {totalPages === 0 ? 0 : totalPages}
                                             </span>
 
-                                            <button 
-                                                className="dashboard-page-btn" 
+                                            <button
+                                                className="dashboard-page-btn"
                                                 onClick={() => goToPage(servicePage + 1)}
                                                 disabled={servicePage >= totalPages || totalPages === 0 || isLoadingServices || (dashboardGlobalListMode && isLoadingDashboardGlobalList)}
                                             >
@@ -1528,7 +1681,7 @@ export default function Dashboard() {
                                             <th>Service</th>
                                             <th>Output Summary</th>
                                             <th>Status</th>
-                                            <th>Acknowledged</th>
+                                            <th>Acknowledge</th>
                                         </tr>
                                     </thead>
 
@@ -1553,75 +1706,85 @@ export default function Dashboard() {
                                             dashboardTableServices.map((service, idx) => {
                                                 const hostName = service.host?.name || service.host?.display_name;
                                                 const serviceDescription = service.description || service.display_name;
-                                                const ackKey = getAckKey(hostName,serviceDescription,service.host?.id,service.id);
+
+                                                const hostAddress =
+                                                    service.host?.address ||
+                                                    service.host?.ip ||
+                                                    service.host?.ip_address ||
+                                                    service.host?.address_ip ||
+                                                    extractIpFromText(service.output);
+
+                                                const ackKey = getAckKey(
+                                                    hostName,
+                                                    serviceDescription,
+                                                    service.host?.id,
+                                                    service.id
+                                                );
+
                                                 const acknowledged = isServiceAcknowledged(service);
-                                                
+
                                                 return (
-                                                <tr
-                                                    key={service.id || idx}
-                                                    className={
-                                                        acknowledged 
-                                                            ? 'service-row-acknowledged' 
-                                                            : `service-row-${service.statusName?.toLowerCase()}`
-                                                    }
-                                                >
-                                                    <td className="host-name">
-                                                        {hostName || 'N/A'}
+                                                    <tr
+                                                        key={`${service.host?.id || service.host?.name || 'host'}-${service.id || service.description || idx}`}
+                                                        className={`service-row-${service.statusName?.toLowerCase()} ${acknowledged ? 'acknowledged' : ''}`}
+                                                    >
+                                                        <td className="host-name">
+                                                            {hostName || 'N/A'}
                                                         </td>
-                                                        
-                                                    <td className="service-name">
-                                                        {serviceDescription || 'N/A'}
-                                                    </td>
-                                                    
-                                                    <td className="service-output">
-                                                        {service.output || 'No output details provided.'}
-                                                    </td>
-                                                    
-                                                    <td>
-                                                        <span className={`status-text ${service.statusName?.toLowerCase()}`}>
-                                                            {service.statusName}
-                                                        </span>
-                                                    </td>
-                                                    
-                                                    <td className="ack-cell">
-                                                        {acknowledged ? (
-                                                            <button
-                                                                className="ack-badge ack-success-badge"
-                                                                disabled={unackInProgressIds.has(ackKey)}
-                                                                onClick={() => handleUnacknowledge(
-                                                                    hostName,
-                                                                    serviceDescription,
-                                                                    service.host?.id,
-                                                                    service.id
-                                                                )}
-                                                                title="Click to remove acknowledgement"
-                                                            >
-                                                                {unackInProgressIds.has(ackKey) ? 'REMOVING...' : 'ACKNOWLEDGED'}
-                                                            </button>
-                                                            
-                                                    ) : (
-                                                        <button
-                                                            className="ack-btn ack-action-btn"
-                                                            disabled={ackInProgressIds.has(ackKey)}
-                                                            onClick={() => {
-                                                                setPendingAck({
-                                                                    hostName,
-                                                                    serviceDescription,
-                                                                    hostId: service.host?.id,
-                                                                    serviceId: service.id,
-                                                                    handleAcknowledge: handleAcknowledge
-                                                                });
-                                                                setAckComment('');
-                                                                setShowAckModal(true);
-                                                            }}
-                                                        >
-                                                            {ackInProgressIds.has(ackKey) ? 'ACKING...' : 'ACKNOWLEDGE'}
-                                                        </button>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    );
-                                })
+
+                                                        <td className="service-name">
+                                                            {serviceDescription || 'N/A'}
+                                                        </td>
+
+                                                        <td className="service-output">
+                                                            {service.output || 'No output details provided.'}
+                                                        </td>
+
+                                                        <td>
+                                                            <span className={`status-text ${service.statusName?.toLowerCase()}`}>
+                                                                {service.statusName}
+                                                            </span>
+                                                        </td>
+
+                                                        <td className="ack-cell">
+                                                            {acknowledged ? (
+                                                                <button
+                                                                    className="ack-badge ack-success-badge"
+                                                                    disabled={unackInProgressIds.has(ackKey)}  // Only disabled when processing
+                                                                    onClick={() => handleUnacknowledge(
+                                                                        hostName,
+                                                                        serviceDescription,
+                                                                        service.host?.id,
+                                                                        service.id,
+                                                                        hostAddress
+                                                                    )}
+                                                                    title="Click to remove acknowledgement"
+                                                                >
+                                                                    {unackInProgressIds.has(ackKey) ? 'REMOVING...' : 'ACKNOWLEDGED'}
+                                                                </button>
+                                                            ) : (
+                                                                <button
+                                                                    className={`ack-btn ack-action-btn ack-${service.statusName?.toLowerCase()}`}
+                                                                    disabled={ackInProgressIds.has(ackKey)}
+                                                                    onClick={() => {
+                                                                        setPendingAck({
+                                                                            hostName,
+                                                                            serviceDescription,
+                                                                            hostId: service.host?.id,
+                                                                            serviceId: service.id,
+                                                                            hostAddress
+                                                                        });
+                                                                        setAckComment('');
+                                                                        setShowAckModal(true);
+                                                                    }}
+                                                                >
+                                                                    {ackInProgressIds.has(ackKey) ? 'ACKING...' : 'ACKNOWLEDGE'}
+                                                                </button>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>
@@ -1693,7 +1856,7 @@ export default function Dashboard() {
                                                                         unknown: null
                                                                     });
 
-                                                                    fetchPollerHosts(p.poller_id, 1, pollerHostLimit);
+                                                                    fetchPollerHosts(p.poller_id, 1, pollerHostLimit, false);
                                                                 }}
                                                             >
                                                                 {p.Poller || `Poller ${p.poller_id}`}
@@ -1744,6 +1907,7 @@ export default function Dashboard() {
                                                 Poller: <span style={{ color: '#58a6ff' }}>{selectedPoller}</span>
                                             </h2>
                                         </div>
+
                                         <div className="pollers-pagination-controls">
                                             <div className="pollers-pagination-left">
                                                 <span className="pollers-pagination-info">
@@ -1754,8 +1918,8 @@ export default function Dashboard() {
                                             </div>
                                             <div className="pollers-pagination-right">
                                                 <span className="pollers-pagination-label">Show:</span>
-                                                <select 
-                                                    className="pollers-page-size-select" 
+                                                <select
+                                                    className="pollers-page-size-select"
                                                     value={pollerHostLimit}
                                                     onChange={handlePollerPageSizeChange}
                                                     disabled={isLoadingPollerHosts || isLoadingPollerServices}
@@ -1773,8 +1937,8 @@ export default function Dashboard() {
                                                     <option value="999999">All</option>
                                                 </select>
                                                 <div className="pollers-pagination-buttons">
-                                                    <button 
-                                                        className="pollers-page-btn" 
+                                                    <button
+                                                        className="pollers-page-btn"
                                                         onClick={() => {
                                                             setPollerHostPage(prev => Math.max(prev - 1, 1));
                                                             setCurrentTableType('all');
@@ -1786,8 +1950,8 @@ export default function Dashboard() {
                                                     <span className="pollers-page-info">
                                                         Page {pollerHostMeta.page || pollerHostPage} of {pollerHostMeta.totalPages || 1}
                                                     </span>
-                                                    <button 
-                                                        className="pollers-page-btn" 
+                                                    <button
+                                                        className="pollers-page-btn"
                                                         onClick={() => {
                                                             setPollerHostPage(prev => prev + 1);
                                                             setCurrentTableType('all');
@@ -1829,7 +1993,7 @@ export default function Dashboard() {
                                                 ) : filteredPollerServices.length === 0 ? (
                                                     <tr>
                                                         <td colSpan="5" className="loading-cell">
-                                                            No active Critical, Warning, or Unknown services found for this host page.
+                                                            No active Critical, Warning, or Unknown services found for this host page matching the status filter.
                                                         </td>
                                                     </tr>
                                                 ) : (
@@ -1837,79 +2001,88 @@ export default function Dashboard() {
                                                         const hostName = service.host?.name || service.host?.display_name;
                                                         const serviceDescription = service.description || service.display_name;
 
+                                                        const hostAddress =
+                                                            service.host?.address ||
+                                                            service.host?.ip ||
+                                                            service.host?.ip_address ||
+                                                            service.host?.address_ip ||
+                                                            extractIpFromText(service.output);
+
                                                         const ackKey = getAckKey(
                                                             hostName,
                                                             serviceDescription,
                                                             service.host?.id,
                                                             service.id
                                                         );
+
                                                         const acknowledged = isServiceAcknowledged(service);
-                                                        
+
                                                         return (
-                                                        <tr
-                                                            key={service.id || idx}
-                                                            className={
-                                                                acknowledged 
-                                                                    ? 'service-row-acknowledged' 
-                                                                    : `service-row-${service.statusName?.toLowerCase()}`
-                                                            }
-                                                        >
-                                                            <td className="host-name">
-                                                                {hostName || 'N/A'}
+                                                            <tr
+                                                                key={`${service.host?.id || service.host?.name || 'host'}-${service.id || service.description || idx}`}
+                                                                className={
+                                                                    acknowledged
+                                                                        ? 'service-row-acknowledged'
+                                                                        : `service-row-${service.statusName?.toLowerCase()}`
+                                                                }
+                                                            >
+                                                                <td className="host-name">
+                                                                    {hostName || 'N/A'}
                                                                 </td>
-                                                            
-                                                            <td className="service-name">
-                                                                {serviceDescription || 'N/A'}
-                                                            </td>
-                                                            
-                                                            <td className="service-output">
-                                                                {service.output || 'No output details provided.'}
-                                                            </td>
-                                                            
-                                                            <td>
-                                                                <span className={`status-text ${service.statusName?.toLowerCase()}`}>
-                                                                    {service.statusName}
-                                                                </span>
-                                                            </td>
-                                                            
-                                                            <td className="ack-cell">
-                                                                {acknowledged ? (
-                                            <button
-                                                className="ack-badge ack-success-badge"
-                                                disabled={unackInProgressIds.has(ackKey)}
-                                                onClick={() => handleUnacknowledge(
-                                                    hostName,
-                                                    serviceDescription,
-                                                    service.host?.id,
-                                                    service.id
-                                                )}
-                                                title="Click to remove acknowledgement"
-                                                >
-                                                    {unackInProgressIds.has(ackKey) ? 'REMOVING...' : 'ACKNOWLEDGED'}
-                                            </button>
-                                        ) : (
-                                            <button
-                                                className="ack-btn ack-action-btn"
-                                                disabled={ackInProgressIds.has(ackKey)}
-                                                onClick={() => {
-                                                    setPendingAck({
-                                                        hostName,
-                                                        serviceDescription,
-                                                        hostId: service.host?.id,
-                                                        serviceId: service.id,
-                                                        handleAcknowledge: handleAcknowledge
-                                                    });
-                                                    setAckComment('');
-                                                    setShowAckModal(true);
-                                                }}
-                                            >
-                                                {ackInProgressIds.has(ackKey) ? 'ACKING...' : 'ACKNOWLEDGE'}
-                                            </button>
-                                        )}
-                                    </td>
-                                </tr>
-                            );
-                        })
+
+                                                                <td className="service-name">
+                                                                    {serviceDescription || 'N/A'}
+                                                                </td>
+
+                                                                <td className="service-output">
+                                                                    {service.output || 'No output details provided.'}
+                                                                </td>
+
+                                                                <td>
+                                                                    <span className={`status-text ${service.statusName?.toLowerCase()}`}>
+                                                                        {service.statusName}
+                                                                    </span>
+                                                                </td>
+
+                                                                <td className="ack-cell">
+                                                                    {acknowledged ? (
+                                                                        <button
+                                                                            className="ack-badge ack-success-badge"
+                                                                            disabled={unackInProgressIds.has(ackKey)}
+                                                                            onClick={() => handleUnacknowledge(
+                                                                                hostName,
+                                                                                serviceDescription,
+                                                                                service.host?.id,
+                                                                                service.id,
+                                                                                hostAddress
+                                                                            )}
+                                                                            title="Click to remove acknowledgement"
+                                                                        >
+                                                                            {unackInProgressIds.has(ackKey) ? 'REMOVING...' : 'ACKNOWLEDGED'}
+                                                                        </button>
+                                                                    ) : (
+                                                                        <button
+                                                                            className={`ack-btn ack-action-btn ack-${service.statusName?.toLowerCase()}`}
+                                                                            disabled={ackInProgressIds.has(ackKey)}
+                                                                            onClick={() => {
+                                                                                setPendingAck({
+                                                                                    hostName,
+                                                                                    serviceDescription,
+                                                                                    hostId: service.host?.id,
+                                                                                    serviceId: service.id,
+                                                                                    hostAddress
+                                                                                });
+                                                                                setAckComment('');
+                                                                                setShowAckModal(true);
+                                                                            }}
+                                                                        >
+                                                                            {ackInProgressIds.has(ackKey) ? 'ACKING...' : 'ACKNOWLEDGE'}
+                                                                        </button>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
                                                 )}
                                             </tbody>
                                         </table>
@@ -1920,26 +2093,31 @@ export default function Dashboard() {
                     </div>
                 )}
 
-                                {location.pathname === '/sla' && <Sla />}
+                {location.pathname === '/sla' && <Sla />}
                 {location.pathname === '/logs' && <Logs />}
 
-                {/* ============================================================ */}
-                {/* ACKNOWLEDGE MODAL                                            */}
-                {/* ============================================================ */}
                 {showAckModal && (
-                    <div className="modal-overlay" onClick={() => {
-                        setShowAckModal(false);
-                        setPendingAck(null);
-                        setAckComment('');
-                    }}>
+                    <div
+                        className="modal-overlay"
+                        onClick={() => {
+                            setShowAckModal(false);
+                            setPendingAck(null);
+                            setAckComment('');
+                        }}
+                    >
                         <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                             <h3 className="modal-title">Acknowledge Service</h3>
+
                             <p className="modal-subtitle">
-                                <strong>Host:</strong> {pendingAck?.hostName || 'N/A'}<br />
+                                <strong>Host:</strong> {pendingAck?.hostName || 'N/A'}
+                                <br />
                                 <strong>Service:</strong> {pendingAck?.serviceDescription || 'N/A'}
+                                <br />
+                                <strong>IP:</strong> {pendingAck?.hostAddress || 'N/A'}
                             </p>
+
                             <div className="modal-input-group">
-                                <label htmlFor="ackComment">Comment (optional)</label>
+                                <label htmlFor="ackComment">Comment optional</label>
                                 <textarea
                                     id="ackComment"
                                     className="modal-textarea"
@@ -1949,6 +2127,7 @@ export default function Dashboard() {
                                     rows="4"
                                 />
                             </div>
+
                             <div className="modal-actions">
                                 <button
                                     className="modal-btn modal-btn-cancel"
@@ -1960,19 +2139,27 @@ export default function Dashboard() {
                                 >
                                     Cancel
                                 </button>
+
                                 <button
                                     className="modal-btn modal-btn-confirm"
                                     onClick={() => {
                                         if (pendingAck) {
-                                            const comment = ackComment.trim() || 'Acknowledged from GOC Dashboard';
-                                            pendingAck.handleAcknowledge(
+                                            // Get username for default comment
+                                            const username = localStorage.getItem('centreon_username') || 'Unknown User';
+                                            
+                                            // Use custom comment if provided, otherwise use "Acknowledged By {username}"
+                                            const comment = ackComment.trim() || `Acknowledged By ${username}`;
+
+                                            handleAcknowledge(
                                                 pendingAck.hostName,
                                                 pendingAck.serviceDescription,
                                                 pendingAck.hostId,
                                                 pendingAck.serviceId,
+                                                pendingAck.hostAddress,
                                                 comment
                                             );
                                         }
+
                                         setShowAckModal(false);
                                         setPendingAck(null);
                                         setAckComment('');
@@ -1988,5 +2175,3 @@ export default function Dashboard() {
         </div>
     );
 }
-
-
