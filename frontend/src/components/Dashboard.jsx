@@ -5,6 +5,7 @@ import Sla from "./SLA";
 import Logs from "./Logs";
 import "../Dashboard.css";
 import cevaLogo from "../assets/CEVA.png";
+import ComboboxFilter from './ComboboxFilter';
 
 const BASE_API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -107,6 +108,9 @@ export default function Dashboard() {
     const [showAckModal, setShowAckModal] = useState(false);
     const [ackComment, setAckComment] = useState('');
     const [pendingAck, setPendingAck] = useState(null);
+
+    // --- FILTERED COUNT STATE (for pagination) ---
+    const [filteredCount, setFilteredCount] = useState(0);
 
     // ============================================================
     // NORMALIZER HELPERS
@@ -362,7 +366,7 @@ export default function Dashboard() {
             const params = new URLSearchParams({
                 type,
                 page: String(page),
-                limit: String(limit)
+                limit: String(999999)
             });
 
             if (hostSearch) {
@@ -917,6 +921,8 @@ export default function Dashboard() {
         return 'all';
     }, [location.pathname, filters.poller, selectedPoller]);
 
+    
+
     const dashboardGlobalListMode = useMemo(() => {
         return (
             location.pathname === '/dashboard' &&
@@ -938,8 +944,8 @@ export default function Dashboard() {
         if (dashboardGlobalListMode) {
             fetchDashboardGlobalServiceList(
                 currentTableType,
-                servicePage,
-                serviceLimit,
+                1,
+                999999,  // ✅ Fetch all services
                 debouncedHostSearch,
                 debouncedServiceSearch,
                 false
@@ -948,8 +954,6 @@ export default function Dashboard() {
     }, [
         dashboardGlobalListMode,
         currentTableType,
-        servicePage,
-        serviceLimit,
         debouncedHostSearch,
         debouncedServiceSearch,
         fetchDashboardGlobalServiceList
@@ -1083,27 +1087,53 @@ export default function Dashboard() {
         isServiceAcknowledged
     ]);
 
+    // ============================================================
+    // DASHBOARD TABLE SERVICES (with pagination)
+    // ============================================================
     const dashboardTableServices = useMemo(() => {
-        const source = dashboardGlobalListMode
+        let source = dashboardGlobalListMode
             ? dashboardGlobalServices
             : filteredServices;
 
-        // Apply status filter again (for global list, we already have all, so we filter here)
-        // But global list already contains all; we apply the status filter on top.
-        return source.filter(service => {
+        console.log("🔍 TABLE SERVICES - source length:", source.length);
+        console.log("🔍 TABLE SERVICES - dashboardGlobalListMode:", dashboardGlobalListMode);
+
+        // Apply status filter
+        let filtered = source.filter(service => {
             const ack = isServiceAcknowledged(service);
             if (statusFilter === 'unhandled') return !ack;
             if (statusFilter === 'acknowledged') return ack;
             return true;
         });
+
+        console.log("🔍 TABLE SERVICES - filtered length:", filtered.length);
+        setFilteredCount(filtered.length);
+
+        // Apply pagination slicing
+        const startIndex = (servicePage - 1) * serviceLimit;
+        const endIndex = startIndex + serviceLimit;
+        const paginated = filtered.slice(startIndex, endIndex);
+
+        console.log("🔍 TABLE SERVICES - servicePage:", servicePage);
+        console.log("🔍 TABLE SERVICES - serviceLimit:", serviceLimit);
+        console.log("🔍 TABLE SERVICES - startIndex:", startIndex);
+        console.log("🔍 TABLE SERVICES - endIndex:", endIndex);
+        console.log("🔍 TABLE SERVICES - paginated length:", paginated.length);
+
+        return paginated;
     }, [
         dashboardGlobalListMode,
         dashboardGlobalServices,
         filteredServices,
         statusFilter,
-        isServiceAcknowledged
+        isServiceAcknowledged,
+        servicePage,
+        serviceLimit
     ]);
 
+    // ============================================================
+    // CALCULATE FILTERED COUNT (before pagination)
+    // ============================================================
     const filteredPollerServices = useMemo(() => {
         let services = pollerServices;
         if (currentTableType === 'all') services = pollerServices;
@@ -1121,17 +1151,45 @@ export default function Dashboard() {
     }, [pollerServices, currentTableType, statusFilter, isServiceAcknowledged]);
 
     // ============================================================
+    // UNIQUE HOSTS & SERVICES FOR COMBOBOX
+    // ============================================================
+    const uniqueHosts = useMemo(() => {
+        const source = dashboardGlobalListMode
+            ? dashboardGlobalServices
+            : filteredServices;
+
+        const hosts = source
+            .map(s => s.host?.name)
+            .filter(Boolean);
+        return [...new Set(hosts)].sort();
+    }, [dashboardGlobalListMode, dashboardGlobalServices, filteredServices]);
+
+    const uniqueServices = useMemo(() => {
+        const source = dashboardGlobalListMode
+            ? dashboardGlobalServices
+            : filteredServices;
+
+        const services = source
+            .map(s => s.description)
+            .filter(Boolean);
+        return [...new Set(services)].sort();
+    }, [dashboardGlobalListMode, dashboardGlobalServices, filteredServices]);
+
+    // ============================================================
     // PAGINATION HELPERS
     // ============================================================
     const totalPages = useMemo(() => {
         if (dashboardGlobalListMode) {
-            return Math.max(1, dashboardGlobalMeta.totalPages || 1);
+            const pages = Math.max(1, Math.ceil(filteredCount / serviceLimit));
+            console.log("🔍 TOTAL PAGES - filteredCount:", filteredCount);
+            console.log("🔍 TOTAL PAGES - serviceLimit:", serviceLimit);
+            console.log("🔍 TOTAL PAGES - pages:", pages);
+            return pages;
         }
-
         return Math.max(1, Math.ceil((serviceMeta.total || 0) / serviceLimit));
     }, [
         dashboardGlobalListMode,
-        dashboardGlobalMeta.totalPages,
+        filteredCount,
         serviceMeta.total,
         serviceLimit
     ]);
@@ -1154,7 +1212,8 @@ export default function Dashboard() {
     };
 
     const handlePageSizeChange = (e) => {
-        setServiceLimit(Number(e.target.value));
+        const newLimit = Number(e.target.value);
+        setServiceLimit(newLimit);
         setServicePage(1);
     };
 
@@ -1301,7 +1360,7 @@ export default function Dashboard() {
             });
 
             const token = localStorage.getItem('centreon_auth_token');
-            
+
             // Get the username from localStorage or use a default
             const username = localStorage.getItem('centreon_username') || 'Unknown User';
 
@@ -1538,23 +1597,23 @@ export default function Dashboard() {
                                 <div className="filter-controls-inline">
                                     <div className="filter-input-group-compact">
                                         <label>HOST</label>
-                                        <input
-                                            type="text"
-                                            className="filter-input-compact"
-                                            placeholder="Filter host..."
+                                        <ComboboxFilter
+                                            label="Host"
                                             value={filters.host}
-                                            onChange={(e) => setFilters(f => ({ ...f, host: e.target.value }))}
+                                            options={uniqueHosts}
+                                            onChange={(value) => setFilters(f => ({ ...f, host: value }))}
+                                            placeholder="Type to search hosts..."
                                         />
                                     </div>
 
                                     <div className="filter-input-group-compact">
                                         <label>SERVICES</label>
-                                        <input
-                                            type="text"
-                                            className="filter-input-compact"
-                                            placeholder="Filter service..."
+                                        <ComboboxFilter
+                                            label="Service"
                                             value={filters.service}
-                                            onChange={(e) => setFilters(f => ({ ...f, service: e.target.value }))}
+                                            options={uniqueServices}
+                                            onChange={(value) => setFilters(f => ({ ...f, service: value }))}
+                                            placeholder="Type to search services..."
                                         />
                                     </div>
 
@@ -1578,7 +1637,7 @@ export default function Dashboard() {
                                         </select>
                                     </div>
 
-                                    {/* NEW STATUS FILTER DROPDOWN */}
+                                    {/* STATUS FILTER DROPDOWN */}
                                     <div className="filter-input-group-compact">
                                         <label>STATUS</label>
                                         <select
@@ -1609,20 +1668,12 @@ export default function Dashboard() {
                                 <div className="dashboard-pagination-controls-top">
                                     <span className="service-count">
                                         {dashboardGlobalListMode
-                                            ? (
-                                                isLoadingDashboardGlobalList
-                                                    ? 'Loading...'
-                                                    : `${dashboardTableServices.length} of ${dashboardGlobalMeta.total || 0} Targets`
-                                            )
-                                            : (
-                                                isLoadingServices
-                                                    ? 'Loading...'
-                                                    : `${dashboardTableServices.length} Targets`
-                                            )
+                                            ? `${dashboardTableServices.length} of ${filteredCount} Targets`
+                                            : `${dashboardTableServices.length} Targets`
                                         }
                                         {dashboardGlobalListMode && (
                                             <>
-                                                {' '}| Global cache {isRefreshingGlobalSummary ? 'refreshing...' : 'cached'}
+                                                {' '}| {isRefreshingGlobalSummary ? 'Refreshing...' : `Updated ${lastUpdated}`}
                                             </>
                                         )}
                                     </span>
@@ -1689,17 +1740,9 @@ export default function Dashboard() {
                                         {dashboardTableServices.length === 0 ? (
                                             <tr>
                                                 <td colSpan="5" className="loading-cell">
-                                                    {dashboardGlobalListMode
-                                                        ? (
-                                                            isLoadingDashboardGlobalList
-                                                                ? 'Loading services...'
-                                                                : 'No active issues found matching current criteria.'
-                                                        )
-                                                        : (
-                                                            isLoadingServices
-                                                                ? 'Loading services...'
-                                                                : 'No active issues found matching current criteria.'
-                                                        )}
+                                                    {dashboardTableServices.length === 0 && isLoadingDashboardGlobalList && dashboardGlobalListMode
+                                                        ? 'Loading services...'
+                                                        : 'No active issues found matching current criteria.'}
                                                 </td>
                                             </tr>
                                         ) : (
@@ -1726,7 +1769,8 @@ export default function Dashboard() {
                                                 return (
                                                     <tr
                                                         key={`${service.host?.id || service.host?.name || 'host'}-${service.id || service.description || idx}`}
-                                                        className={`service-row-${service.statusName?.toLowerCase()} ${acknowledged ? 'acknowledged' : ''}`}
+                                                        // ✅ FIXED: Use correct CSS class for green highlighting
+                                                        className={acknowledged ? 'service-row-acknowledged' : `service-row-${service.statusName?.toLowerCase()}`}
                                                     >
                                                         <td className="host-name">
                                                             {hostName || 'N/A'}
@@ -1750,7 +1794,7 @@ export default function Dashboard() {
                                                             {acknowledged ? (
                                                                 <button
                                                                     className="ack-badge ack-success-badge"
-                                                                    disabled={unackInProgressIds.has(ackKey)}  // Only disabled when processing
+                                                                    disabled={unackInProgressIds.has(ackKey)}
                                                                     onClick={() => handleUnacknowledge(
                                                                         hostName,
                                                                         serviceDescription,
@@ -2146,7 +2190,7 @@ export default function Dashboard() {
                                         if (pendingAck) {
                                             // Get username for default comment
                                             const username = localStorage.getItem('centreon_username') || 'Unknown User';
-                                            
+
                                             // Use custom comment if provided, otherwise use "Acknowledged By {username}"
                                             const comment = ackComment.trim() || `Acknowledged By ${username}`;
 
