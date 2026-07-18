@@ -1517,7 +1517,10 @@ export default function Dashboard() {
                         {location.pathname === '/logs' && 'System Audit Log'}
                     </h1>
 
-                    <button className="refresh-btn" onClick={handleGlobalManualRefresh}>
+                    <button 
+                        className="refresh-btn" 
+                        onClick={() => window.location.reload()}
+                    >
                         Refresh Data
                     </button>
                 </header>

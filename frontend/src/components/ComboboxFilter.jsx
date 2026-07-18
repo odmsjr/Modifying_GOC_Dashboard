@@ -140,7 +140,7 @@ export default function ComboboxFilter({
                         className={`combobox-option combobox-option-all ${!value ? 'active' : ''}`}
                         onClick={handleClear}
                     >
-                        🔄 All {label}s
+                         All {label}s
                     </div>
 
                     {/* Filtered options */}
