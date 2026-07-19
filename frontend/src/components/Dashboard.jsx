@@ -1054,7 +1054,7 @@ export default function Dashboard() {
             if (selectedPollerId) {
                 fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit, true);
             }
-        }, 600000);
+        }, 300000);
 
         return () => clearInterval(heartbeat);
     }, [
