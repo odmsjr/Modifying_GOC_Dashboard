@@ -141,7 +141,7 @@ function ComboboxFilter({
                         className={`combobox-option combobox-option-all ${!value ? 'active' : ''}`}
                         onClick={handleClear}
                     >
-                        🔄 All {label}s
+                         All {label}s
                     </div>
 
                     {filteredOptions.map((option, index) => (
@@ -151,7 +151,6 @@ function ComboboxFilter({
                             onClick={() => handleSelect(option)}
                             onMouseEnter={() => setHighlightedIndex(index)}
                         >
-                            {value === option && '✓ '}
                             {option}
                         </div>
                     ))}
