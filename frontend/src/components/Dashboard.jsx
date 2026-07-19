@@ -1674,15 +1674,17 @@ export default function Dashboard() {
 
                 {(location.pathname === '/dashboard' || (location.pathname === '/pollers' && selectedPoller)) && (
                     <div className="stats-grid" style={{ marginBottom: '24px' }}>
+                        {/* ALL CARD */}
                         <div
                             className={`stat-card all ${currentTableType === 'all' ? 'active' : ''}`}
                             onClick={() => {
-                                setDashboardGlobalServices([]);
-                                setCurrentTableType('all');
-
-                                if (location.pathname === '/dashboard') {
-                                    setServicePage(1);
-                                    setShowAllStatusesForPoller(true);
+                                if (currentTableType !== 'all') {
+                                    setDashboardGlobalServices([]);
+                                    setCurrentTableType('all');
+                                    if (location.pathname === '/dashboard') {
+                                        setServicePage(1);
+                                        setShowAllStatusesForPoller(true);
+                                    }
                                 }
                             }}
                         >
@@ -1690,15 +1692,17 @@ export default function Dashboard() {
                             <div className="stat-label">All Active Issues</div>
                         </div>
 
+                        {/* CRITICAL CARD */}
                         <div
                             className={`stat-card critical ${currentTableType === 'critical' ? 'active' : ''}`}
                             onClick={() => {
-                                setDashboardGlobalServices([]);
-                                setCurrentTableType('critical');
-
-                                if (location.pathname === '/dashboard') {
-                                    setServicePage(1);
-                                    setShowAllStatusesForPoller(false);
+                                if (currentTableType !== 'critical') {
+                                    setDashboardGlobalServices([]);
+                                    setCurrentTableType('critical');
+                                    if (location.pathname === '/dashboard') {
+                                        setServicePage(1);
+                                        setShowAllStatusesForPoller(false);
+                                    }
                                 }
                             }}
                         >
@@ -1706,15 +1710,17 @@ export default function Dashboard() {
                             <div className="stat-label">Critical</div>
                         </div>
 
+                        {/* WARNING CARD */}
                         <div
                             className={`stat-card warning ${currentTableType === 'warning' ? 'active' : ''}`}
                             onClick={() => {
-                                setDashboardGlobalServices([]);
-                                setCurrentTableType('warning');
-
-                                if (location.pathname === '/dashboard') {
-                                    setServicePage(1);
-                                    setShowAllStatusesForPoller(false);
+                                if (currentTableType !== 'warning') {
+                                    setDashboardGlobalServices([]);
+                                    setCurrentTableType('warning');
+                                    if (location.pathname === '/dashboard') {
+                                        setServicePage(1);
+                                        setShowAllStatusesForPoller(false);
+                                    }
                                 }
                             }}
                         >
@@ -1722,15 +1728,17 @@ export default function Dashboard() {
                             <div className="stat-label">Warning</div>
                         </div>
 
+                        {/* UNKNOWN CARD */}
                         <div
                             className={`stat-card unknown ${currentTableType === 'unknown' ? 'active' : ''}`}
                             onClick={() => {
-                                setDashboardGlobalServices([]);
-                                setCurrentTableType('unknown');
-
-                                if (location.pathname === '/dashboard') {
-                                    setServicePage(1);
-                                    setShowAllStatusesForPoller(false);
+                                if (currentTableType !== 'unknown') {
+                                    setDashboardGlobalServices([]);
+                                    setCurrentTableType('unknown');
+                                    if (location.pathname === '/dashboard') {
+                                        setServicePage(1);
+                                        setShowAllStatusesForPoller(false);
+                                    }
                                 }
                             }}
                         >
