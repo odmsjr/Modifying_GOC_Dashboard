@@ -1,14 +1,177 @@
-// frontend/src/Dashboard.js
+// frontend/src/components/Dashboard.jsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import Sla from "./SLA";
 import Logs from "./Logs";
 import "../Dashboard.css";
 import cevaLogo from "../assets/CEVA.png";
-import ComboboxFilter from './ComboboxFilter';
 
 const BASE_API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
+// ============================================================
+// COMBOBOX FILTER COMPONENT (merged from ComboboxFilter.jsx)
+// ============================================================
+function ComboboxFilter({
+    label,
+    value,
+    options = [],
+    onChange,
+    placeholder = 'Type to search...',
+    className = ''
+}) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [highlightedIndex, setHighlightedIndex] = useState(-1);
+    const containerRef = useRef(null);
+    const inputRef = useRef(null);
+
+    useEffect(() => {
+        setSearchTerm(value || '');
+    }, [value]);
+
+    const filteredOptions = options.filter(opt =>
+        opt.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    const handleSelect = (selected) => {
+        setSearchTerm(selected);
+        onChange(selected);
+        setIsOpen(false);
+        setHighlightedIndex(-1);
+        inputRef.current?.blur();
+    };
+
+    const handleClear = () => {
+        setSearchTerm('');
+        onChange('');
+        setIsOpen(false);
+        setHighlightedIndex(-1);
+        inputRef.current?.focus();
+    };
+
+    const handleKeyDown = (e) => {
+        if (!isOpen && filteredOptions.length > 0 && e.key === 'ArrowDown') {
+            setIsOpen(true);
+            return;
+        }
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setHighlightedIndex(prev =>
+                prev < filteredOptions.length - 1 ? prev + 1 : prev
+            );
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setHighlightedIndex(prev => (prev > -1 ? prev - 1 : -1));
+        } else if (e.key === 'Enter' && highlightedIndex >= 0) {
+            e.preventDefault();
+            if (highlightedIndex === -1) {
+                if (filteredOptions.length > 0) {
+                    handleSelect(filteredOptions[0]);
+                }
+            } else {
+                handleSelect(filteredOptions[highlightedIndex]);
+            }
+        } else if (e.key === 'Escape') {
+            setIsOpen(false);
+            setHighlightedIndex(-1);
+        } else if (e.key === 'Backspace' && searchTerm === '') {
+            handleClear();
+        }
+    };
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (containerRef.current && !containerRef.current.contains(event.target)) {
+                setIsOpen(false);
+                setHighlightedIndex(-1);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    return (
+        <div className={`combobox-container ${className}`} ref={containerRef}>
+            <div className="combobox-input-wrapper">
+                <input
+                    ref={inputRef}
+                    type="text"
+                    className="combobox-input"
+                    placeholder={placeholder}
+                    value={searchTerm}
+                    onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        onChange(e.target.value);
+                        setIsOpen(true);
+                        setHighlightedIndex(-1);
+                    }}
+                    onFocus={() => {
+                        if (options.length > 0) {
+                            setIsOpen(true);
+                        }
+                    }}
+                    onKeyDown={handleKeyDown}
+                    autoComplete="off"
+                />
+                {searchTerm && (
+                    <button
+                        className="combobox-clear-btn"
+                        onClick={handleClear}
+                        type="button"
+                        aria-label="Clear selection"
+                    >
+                        ✕
+                    </button>
+                )}
+                <button
+                    className="combobox-toggle-btn"
+                    onClick={() => setIsOpen(!isOpen)}
+                    type="button"
+                    aria-label="Toggle dropdown"
+                >
+                    ▾
+                </button>
+            </div>
+
+            {isOpen && filteredOptions.length > 0 && (
+                <div className="combobox-dropdown">
+                    <div
+                        className={`combobox-option combobox-option-all ${!value ? 'active' : ''}`}
+                        onClick={handleClear}
+                    >
+                        🔄 All {label}s
+                    </div>
+
+                    {filteredOptions.map((option, index) => (
+                        <div
+                            key={option}
+                            className={`combobox-option ${index === highlightedIndex ? 'highlighted' : ''} ${value === option ? 'selected' : ''}`}
+                            onClick={() => handleSelect(option)}
+                            onMouseEnter={() => setHighlightedIndex(index)}
+                        >
+                            {value === option && '✓ '}
+                            {option}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {isOpen && filteredOptions.length === 0 && (
+                <div className="combobox-dropdown">
+                    <div className="combobox-no-results">
+                        No matching {label.toLowerCase()}s found
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ============================================================
+// DASHBOARD COMPONENT
+// ============================================================
 export default function Dashboard() {
     const location = useLocation();
     const navigate = useNavigate();
@@ -921,8 +1084,6 @@ export default function Dashboard() {
         return 'all';
     }, [location.pathname, filters.poller, selectedPoller]);
 
-    
-
     const dashboardGlobalListMode = useMemo(() => {
         return (
             location.pathname === '/dashboard' &&
@@ -1095,9 +1256,6 @@ export default function Dashboard() {
             ? dashboardGlobalServices
             : filteredServices;
 
-        console.log("🔍 TABLE SERVICES - source length:", source.length);
-        console.log("🔍 TABLE SERVICES - dashboardGlobalListMode:", dashboardGlobalListMode);
-
         // Apply status filter
         let filtered = source.filter(service => {
             const ack = isServiceAcknowledged(service);
@@ -1106,19 +1264,12 @@ export default function Dashboard() {
             return true;
         });
 
-        console.log("🔍 TABLE SERVICES - filtered length:", filtered.length);
         setFilteredCount(filtered.length);
 
         // Apply pagination slicing
         const startIndex = (servicePage - 1) * serviceLimit;
         const endIndex = startIndex + serviceLimit;
         const paginated = filtered.slice(startIndex, endIndex);
-
-        console.log("🔍 TABLE SERVICES - servicePage:", servicePage);
-        console.log("🔍 TABLE SERVICES - serviceLimit:", serviceLimit);
-        console.log("🔍 TABLE SERVICES - startIndex:", startIndex);
-        console.log("🔍 TABLE SERVICES - endIndex:", endIndex);
-        console.log("🔍 TABLE SERVICES - paginated length:", paginated.length);
 
         return paginated;
     }, [
@@ -1181,9 +1332,6 @@ export default function Dashboard() {
     const totalPages = useMemo(() => {
         if (dashboardGlobalListMode) {
             const pages = Math.max(1, Math.ceil(filteredCount / serviceLimit));
-            console.log("🔍 TOTAL PAGES - filteredCount:", filteredCount);
-            console.log("🔍 TOTAL PAGES - serviceLimit:", serviceLimit);
-            console.log("🔍 TOTAL PAGES - pages:", pages);
             return pages;
         }
         return Math.max(1, Math.ceil((serviceMeta.total || 0) / serviceLimit));
@@ -1772,7 +1920,6 @@ export default function Dashboard() {
                                                 return (
                                                     <tr
                                                         key={`${service.host?.id || service.host?.name || 'host'}-${service.id || service.description || idx}`}
-                                                        // ✅ FIXED: Use correct CSS class for green highlighting
                                                         className={acknowledged ? 'service-row-acknowledged' : `service-row-${service.statusName?.toLowerCase()}`}
                                                     >
                                                         <td className="host-name">
