@@ -500,7 +500,8 @@ export default function Dashboard() {
         limit = 100,
         hostSearch = '',
         serviceSearch = '',
-        isBackground = false
+        isBackground = false,
+        statusFilterParam = 'unhandled'
     ) => {
         const requestId = dashboardGlobalListRequestIdRef.current + 1;
         dashboardGlobalListRequestIdRef.current = requestId;
@@ -528,7 +529,8 @@ export default function Dashboard() {
             const params = new URLSearchParams({
                 type,
                 page: String(page),
-                limit: String(999999)
+                limit: String(999999),
+                statusFilter: statusFilterParam
             });
 
             if (hostSearch) {
@@ -617,7 +619,8 @@ export default function Dashboard() {
                             limit,
                             hostSearch,
                             serviceSearch,
-                            isBackground
+                            isBackground,
+                            statusFilterParam
                         );
                     }
                 }, 10000);
@@ -1023,7 +1026,8 @@ export default function Dashboard() {
                 serviceLimit,
                 debouncedHostSearch,
                 debouncedServiceSearch,
-                false
+                false,
+                statusFilter
             );
         }
 
@@ -1108,7 +1112,8 @@ export default function Dashboard() {
                 999999,  // ✅ Fetch all services
                 debouncedHostSearch,
                 debouncedServiceSearch,
-                false
+                false,
+                statusFilter
             );
         }
     }, [
@@ -1116,7 +1121,8 @@ export default function Dashboard() {
         currentTableType,
         debouncedHostSearch,
         debouncedServiceSearch,
-        fetchDashboardGlobalServiceList
+        fetchDashboardGlobalServiceList,
+        statusFilter
     ]);
 
     const filteredPollers = useMemo(() => {
