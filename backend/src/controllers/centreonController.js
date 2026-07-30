@@ -1515,6 +1515,132 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
 };
 
 // ============================================================
+// DATA CENTER - HOST GROUPS WITH ISSUE COUNTS
+// ============================================================
+
+const getDataCenterHostGroups = async (req, res, next) => {
+    try {
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 100;
+        const showHost = true; // We need hosts to count issues
+
+        // 1. Fetch all host groups with their hosts
+        const params = new URLSearchParams({
+            page: String(page),
+            limit: String(limit),
+            show_host: 'true'
+        });
+
+        const endpoint = `/monitoring/hostgroups?${params.toString()}`;
+        console.log("📊 Fetching host groups for Data Center:", endpoint);
+
+        const response = await centreonAxios.get(endpoint, {
+            headers: getCentreonHeaders(req)
+        });
+
+        const groups = response.data?.result || [];
+        const totalGroups = response.data?.meta?.total || 0;
+
+        // 2. Get unhandled services from cache (or fetch if empty)
+        // We'll use the existing unhandledCache for speed
+        let unhandledServices = [];
+
+        if (unhandledCache.services) {
+            const criticalServices = unhandledCache.services.critical || [];
+            const warningServices = unhandledCache.services.warning || [];
+            const unknownServices = unhandledCache.services.unknown || [];
+            unhandledServices = [...criticalServices, ...warningServices, ...unknownServices];
+        }
+
+        // 3. Build a map: hostId -> { critical, warning, unknown }
+        const hostIssueMap = new Map();
+        unhandledServices.forEach(service => {
+            const hostId = service.host?.id;
+            if (!hostId) return;
+
+            if (!hostIssueMap.has(hostId)) {
+                hostIssueMap.set(hostId, { critical: 0, warning: 0, unknown: 0, all: 0 });
+            }
+
+            const counts = hostIssueMap.get(hostId);
+            if (service.statusCode === 2) counts.critical++;
+            else if (service.statusCode === 1) counts.warning++;
+            else if (service.statusCode === 3) counts.unknown++;
+            counts.all = counts.critical + counts.warning + counts.unknown;
+            hostIssueMap.set(hostId, counts);
+        });
+
+        // 4. Build the summary per host group
+        const summary = groups.map(group => {
+            const groupId = group.id;
+            const groupName = group.name;
+            const hosts = group.hosts || [];
+
+            let totalCritical = 0;
+            let totalWarning = 0;
+            let totalUnknown = 0;
+            let totalAll = 0;
+
+            const hostDetails = hosts.map(host => {
+                const hostId = host.id;
+                const counts = hostIssueMap.get(hostId) || { critical: 0, warning: 0, unknown: 0, all: 0 };
+
+                totalCritical += counts.critical;
+                totalWarning += counts.warning;
+                totalUnknown += counts.unknown;
+                totalAll += counts.all;
+
+                return {
+                    id: hostId,
+                    name: host.name,
+                    alias: host.alias,
+                    display_name: host.display_name,
+                    state: host.state,
+                    critical: counts.critical,
+                    warning: counts.warning,
+                    unknown: counts.unknown,
+                    all_issues: counts.all
+                };
+            });
+
+            return {
+                id: groupId,
+                name: groupName,
+                totalCritical,
+                totalWarning,
+                totalUnknown,
+                totalAll,
+                hostCount: hosts.length,
+                hosts: hostDetails
+            };
+        });
+
+        return res.json({
+            success: true,
+            data: {
+                result: summary,
+                meta: {
+                    page,
+                    limit,
+                    total: totalGroups,
+                    totalGroups: summary.length
+                }
+            },
+            cache: {
+                used: Boolean(unhandledCache.updatedAt),
+                updatedAt: unhandledCache.updatedAt,
+                isRefreshing: unhandledCache.isRefreshing
+            }
+        });
+
+    } catch (error) {
+        console.error("Failed to get Data Center host groups:", error);
+        return handleCentreonError(error, res, next);
+    }
+};
+
+
+// ============================================================
 // ACKNOWLEDGEMENT ACTIONS
 // ============================================================
 
@@ -2079,5 +2205,6 @@ module.exports = {
     getGlobalServiceStatusSummaryList,
     acknowledgeService,
     unacknowledgeService,
-    testMonitoringServers
+    testMonitoringServers,
+    getDataCenterHostGroups,
 };

@@ -27,4 +27,7 @@ router.get('/services/status/global-summary/list', centreonController.getGlobalS
 router.get('/services', centreonController.getAllServices);
 router.get('/services/host/:hostId', centreonController.getServicesByHost);
 
+// Data Center - Host Groups with issue counts
+router.get('/datacenter/hostgroups', centreonController.getDataCenterHostGroups);
+
 module.exports = router;

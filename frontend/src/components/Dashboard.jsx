@@ -9,7 +9,7 @@ import cevaLogo from "../assets/CEVA.png";
 const BASE_API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
 // ============================================================
-// COMBOBOX FILTER COMPONENT (merged from ComboboxFilter.jsx)
+// COMBOBOX FILTER COMPONENT
 // ============================================================
 function ComboboxFilter({
     label,
@@ -169,6 +169,300 @@ function ComboboxFilter({
 }
 
 // ============================================================
+// DATA CENTER COMPONENT (Props-based - no internal state)
+// ============================================================
+const DataCenterContent = ({
+    groups,
+    loading,
+    error,
+    selectedGroup,
+    setSelectedGroup,
+    detailPage,
+    setDetailPage,
+    detailLimit,
+    setDetailLimit,
+    detailFilter,
+    setDetailFilter,
+    fetchHostGroups
+}) => {
+    const handleGroupClick = (group) => {
+        setSelectedGroup(group);
+        setDetailPage(1);
+        setDetailFilter('all');
+    };
+
+    const handleBack = () => {
+        setSelectedGroup(null);
+        setDetailPage(1);
+        setDetailFilter('all');
+    };
+
+    const totalDetailPages = selectedGroup
+        ? Math.max(1, Math.ceil((selectedGroup.hosts?.length || 0) / detailLimit))
+        : 1;
+
+    const getPaginatedHosts = () => {
+        if (!selectedGroup) return [];
+        const hosts = selectedGroup.hosts || [];
+
+        let filtered = hosts;
+        if (detailFilter === 'critical') {
+            filtered = hosts.filter(h => h.critical > 0 || h.state === 1);
+        } else if (detailFilter === 'warning') {
+            filtered = hosts.filter(h => h.warning > 0);
+        } else if (detailFilter === 'unknown') {
+            filtered = hosts.filter(h => h.unknown > 0);
+        }
+
+        const start = (detailPage - 1) * detailLimit;
+        const end = start + detailLimit;
+        return filtered.slice(start, end);
+    };
+
+    const getCounts = () => {
+        if (!selectedGroup) return { all: 0, critical: 0, warning: 0, unknown: 0, down: 0 };
+        const hosts = selectedGroup.hosts || [];
+        let critical = selectedGroup.totalCritical || 0;
+        let warning = selectedGroup.totalWarning || 0;
+        let unknown = selectedGroup.totalUnknown || 0;
+        const down = hosts.filter(h => h.state === 1).length;
+        critical += down;
+        const all = critical + warning + unknown;
+        return { all, critical, warning, unknown, down };
+    };
+
+    const counts = selectedGroup ? getCounts() : { all: 0, critical: 0, warning: 0, unknown: 0, down: 0 };
+
+    const handleFilterClick = (filter) => {
+        setDetailFilter(filter === detailFilter ? 'all' : filter);
+        setDetailPage(1);
+    };
+
+    if (error) {
+        return (
+            <div className="data-center-error">
+                <p>Error loading data: {error}</p>
+                <button onClick={fetchHostGroups}>Retry</button>
+            </div>
+        );
+    }
+
+    // ============================================================
+    // DETAIL VIEW (Selected Group)
+    // ============================================================
+    if (selectedGroup) {
+        const paginatedHosts = getPaginatedHosts();
+
+        return (
+            <div className="data-center-container">
+                <div className="data-center-detail-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                        <button
+                            className="refresh-btn"
+                            onClick={handleBack}
+                            style={{ backgroundColor: '#21262d', color: '#c9d1d9' }}
+                        >
+                            ⬅ Back to Host Groups
+                        </button>
+                        <h2>
+                            Host Group: <span style={{ color: '#58a6ff' }}>{selectedGroup.name}</span>
+                        </h2>
+                    </div>
+                </div>
+
+                <div className="stats-grid" style={{ marginBottom: '24px' }}>
+                    <div
+                        className={`stat-card all ${detailFilter === 'all' ? 'active' : ''}`}
+                        onClick={() => handleFilterClick('all')}
+                        style={{ cursor: 'pointer' }}
+                    >
+                        <div className="stat-number">{counts.all}</div>
+                        <div className="stat-label">All Active Issues</div>
+                    </div>
+
+                    <div
+                        className={`stat-card critical ${detailFilter === 'critical' ? 'active' : ''}`}
+                        onClick={() => handleFilterClick('critical')}
+                        style={{ cursor: 'pointer' }}
+                    >
+                        <div className="stat-number">{counts.critical}</div>
+                        <div className="stat-label">Critical</div>
+                    </div>
+
+                    <div
+                        className={`stat-card warning ${detailFilter === 'warning' ? 'active' : ''}`}
+                        onClick={() => handleFilterClick('warning')}
+                        style={{ cursor: 'pointer' }}
+                    >
+                        <div className="stat-number">{counts.warning}</div>
+                        <div className="stat-label">Warning</div>
+                    </div>
+
+                    <div
+                        className={`stat-card unknown ${detailFilter === 'unknown' ? 'active' : ''}`}
+                        onClick={() => handleFilterClick('unknown')}
+                        style={{ cursor: 'pointer' }}
+                    >
+                        <div className="stat-number">{counts.unknown}</div>
+                        <div className="stat-label">Unknown</div>
+                    </div>
+                </div>
+
+                <div className="data-center-detail-controls-bottom">
+                    <div className="data-center-pagination-controls">
+                        <span className="data-center-pagination-label">Show:</span>
+                        <select
+                            className="data-center-page-size-select"
+                            value={detailLimit}
+                            onChange={(e) => {
+                                setDetailLimit(Number(e.target.value));
+                                setDetailPage(1);
+                            }}
+                        >
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="30">30</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="999999">All</option>
+                        </select>
+
+                        <div className="data-center-pagination-buttons">
+                            <button
+                                className="data-center-page-btn"
+                                onClick={() => setDetailPage(prev => Math.max(prev - 1, 1))}
+                                disabled={detailPage <= 1}
+                            >
+                                ◀ Prev
+                            </button>
+                            <span className="data-center-page-info">
+                                Page {detailPage} of {totalDetailPages}
+                            </span>
+                            <button
+                                className="data-center-page-btn"
+                                onClick={() => setDetailPage(prev => Math.min(prev + 1, totalDetailPages))}
+                                disabled={detailPage >= totalDetailPages}
+                            >
+                                Next ▶
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="data-center-table-wrapper">
+                    <table className="data-center-detail-table">
+                        <thead>
+                            <tr>
+                                <th>Host</th>
+                                <th>Alias</th>
+                                <th>Critical</th>
+                                <th>Warning</th>
+                                <th>Unknown</th>
+                                <th>All Issues</th>
+                                <th>State</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {paginatedHosts.length === 0 ? (
+                                <tr>
+                                    <td colSpan="7" className="no-data">
+                                        No hosts match the selected filter
+                                    </td>
+                                </tr>
+                            ) : (
+                                paginatedHosts.map((host) => (
+                                    <tr key={host.id}>
+                                        <td className="host-name">{host.name}</td>
+                                        <td>{host.alias || '-'}</td>
+                                        <td className="critical-count">{host.critical || 0}</td>
+                                        <td className="warning-count">{host.warning || 0}</td>
+                                        <td className="unknown-count">{host.unknown || 0}</td>
+                                        <td className="total-count">
+                                            {(host.critical || 0) + (host.warning || 0) + (host.unknown || 0)}
+                                        </td>
+                                        <td>
+                                            <span className={`host-status status-${host.state}`}>
+                                                {host.state === 0 ? 'UP' :
+                                                host.state === 1 ? 'DOWN' :
+                                                host.state === 2 ? 'UNREACHABLE' :
+                                                host.state === 3 ? 'PENDING' : 'UNKNOWN'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        );
+    }
+
+    // ============================================================
+    // SUMMARY VIEW (All Host Groups)
+    // ============================================================
+    return (
+        <div className="data-center-container">
+            <div className="content-header" style={{ marginBottom: '20px' }}>
+                <h1>Data Center Overview</h1>
+                <span className="data-center-count">
+                    {loading ? '-' : `Total Groups: ${groups.length}`}
+                </span>
+            </div>
+
+            <div className="data-center-table-wrapper">
+                <table className="data-center-table">
+                    <thead>
+                        <tr>
+                            <th>Host Group</th>
+                            <th>All Active Issues</th>
+                            <th>Critical</th>
+                            <th>Warning</th>
+                            <th>Unknown</th>
+                            <th>Hosts</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading || groups.length === 0 ? (
+                            <tr>
+                                <td colSpan="6" className="no-data">
+                                    {loading ? '' : 'No host groups found'}
+                                </td>
+                            </tr>
+                        ) : (
+                            groups.map((group) => {
+                                const downCount = (group.hosts || []).filter(h => h.state === 1).length;
+                                const criticalWithDown = (group.totalCritical || 0) + downCount;
+
+                                return (
+                                    <tr
+                                        key={group.id}
+                                        className="data-center-row"
+                                        onClick={() => handleGroupClick(group)}
+                                    >
+                                        <td className="group-name">
+                                            <span className="click-icon">▶</span>
+                                            {group.name}
+                                        </td>
+                                        <td className="total-count">
+                                            {criticalWithDown + (group.totalWarning || 0) + (group.totalUnknown || 0)}
+                                        </td>
+                                        <td className="critical-count">{criticalWithDown}</td>
+                                        <td className="warning-count">{group.totalWarning || 0}</td>
+                                        <td className="unknown-count">{group.totalUnknown || 0}</td>
+                                        <td>{group.hostCount || 0}</td>
+                                    </tr>
+                                );
+                            })
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================
 // DASHBOARD COMPONENT
 // ============================================================
 export default function Dashboard() {
@@ -182,7 +476,7 @@ export default function Dashboard() {
     const [currentTableType, setCurrentTableType] = useState('all');
     const [filters, setFilters] = useState({ host: '', service: '', poller: 'all' });
     const [showAllStatusesForPoller, setShowAllStatusesForPoller] = useState(true);
-    const [statusFilter, setStatusFilter] = useState('unhandled'); // 'unhandled', 'acknowledged', 'all'
+    const [statusFilter, setStatusFilter] = useState('unhandled');
 
     // --- SERVICE PAGINATION STATE ---
     const [servicePage, setServicePage] = useState(1);
@@ -224,7 +518,6 @@ export default function Dashboard() {
     const [ackInProgressIds, setAckInProgressIds] = useState(new Set());
     const [unackInProgressIds, setUnackInProgressIds] = useState(new Set());
 
-    // Prevent stale search/status requests from overwriting newer results.
     const dashboardGlobalListRequestIdRef = useRef(0);
     const dashboardSearchActiveRef = useRef(false);
 
@@ -251,7 +544,6 @@ export default function Dashboard() {
     });
     const [isLoadingPollerHosts, setIsLoadingPollerHosts] = useState(false);
 
-    // --- SELECTED POLLER SERVICES STATE ---
     const [pollerServices, setPollerServices] = useState([]);
     const [isLoadingPollerServices, setIsLoadingPollerServices] = useState(false);
 
@@ -271,8 +563,20 @@ export default function Dashboard() {
     const [ackComment, setAckComment] = useState('');
     const [pendingAck, setPendingAck] = useState(null);
 
-    // --- FILTERED COUNT STATE (for pagination) ---
+    // --- FILTERED COUNT STATE ---
     const [filteredCount, setFilteredCount] = useState(0);
+
+    // ============================================================
+    // DATA CENTER STATE (Lifted to parent)
+    // ============================================================
+    const [dataCenterGroups, setDataCenterGroups] = useState([]);
+    const [dataCenterLoading, setDataCenterLoading] = useState(true);
+    const [dataCenterError, setDataCenterError] = useState(null);
+    const [dataCenterSelectedGroup, setDataCenterSelectedGroup] = useState(null);
+    const [dataCenterDetailPage, setDataCenterDetailPage] = useState(1);
+    const [dataCenterDetailLimit, setDataCenterDetailLimit] = useState(20);
+    const [dataCenterDetailFilter, setDataCenterDetailFilter] = useState('all');
+    const [dataCenterFetched, setDataCenterFetched] = useState(false);
 
     // ============================================================
     // NORMALIZER HELPERS
@@ -375,6 +679,39 @@ export default function Dashboard() {
             unknown
         };
     }, [isServiceAcknowledged]);
+
+    // ============================================================
+    // DATA CENTER FETCH (Only once)
+    // ============================================================
+    const fetchDataCenterHostGroups = useCallback(async () => {
+        try {
+            setDataCenterLoading(true);
+            const token = localStorage.getItem('centreon_auth_token');
+
+            const response = await fetch(
+                `${BASE_API_URL}/api/centreon/datacenter/hostgroups?limit=200`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP Error ${response.status}`);
+            }
+
+            const data = await response.json();
+            setDataCenterGroups(data.data?.result || []);
+            setDataCenterError(null);
+            setDataCenterFetched(true);
+        } catch (err) {
+            console.error('Error fetching host groups:', err);
+            setDataCenterError(err.message);
+        } finally {
+            setDataCenterLoading(false);
+        }
+    }, []);
 
     // ============================================================
     // ROUTER RESET
@@ -513,7 +850,6 @@ export default function Dashboard() {
                 setIsLoadingDashboardGlobalList(true);
             }
 
-            // Clear stale table data only on non-background requests to avoid flicker
             if (!isBackground) {
                 setDashboardGlobalServices([]);
                 setDashboardGlobalMeta({
@@ -1050,7 +1386,6 @@ export default function Dashboard() {
         refreshDashboardData(false);
         fetchPollersRoster();
 
-        // Auto-refresh every 10 minutes (600,000 ms) with background flag
         const heartbeat = setInterval(() => {
             refreshDashboardData(true);
             fetchPollersRoster();
@@ -1072,6 +1407,18 @@ export default function Dashboard() {
         navigate
     ]);
 
+    // ============================================================
+    // DATA CENTER - Fetch only once when first visiting
+    // ============================================================
+    useEffect(() => {
+        if (!dataCenterFetched && location.pathname === '/datacenter') {
+            fetchDataCenterHostGroups();
+        }
+    }, [location.pathname, dataCenterFetched, fetchDataCenterHostGroups]);
+
+    // ============================================================
+    // POLLERS - Fetch when navigating to pollers
+    // ============================================================
     useEffect(() => {
         if (location.pathname === '/pollers' && selectedPollerId) {
             fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit, false);
@@ -1109,7 +1456,7 @@ export default function Dashboard() {
             fetchDashboardGlobalServiceList(
                 currentTableType,
                 1,
-                999999,  // ✅ Fetch all services
+                999999,
                 debouncedHostSearch,
                 debouncedServiceSearch,
                 false,
@@ -1189,7 +1536,6 @@ export default function Dashboard() {
 
     const isSearchMode = Boolean(debouncedHostSearch || debouncedServiceSearch);
 
-    // Core filtering: by status, severity, host/service/poller
     const filteredServices = useMemo(() => {
         let source = [];
 
@@ -1213,15 +1559,13 @@ export default function Dashboard() {
             if (currentTableType === 'unknown') source = cachedUnknown;
         }
 
-        // Apply status filter (unhandled / acknowledged / all)
         source = source.filter(item => {
             const ack = isServiceAcknowledged(item);
             if (statusFilter === 'unhandled') return !ack;
             if (statusFilter === 'acknowledged') return ack;
-            return true; // 'all'
+            return true;
         });
 
-        // Apply host, service, poller filters
         return source.filter(item => {
             const matchHost =
                 !filters.host ||
@@ -1253,15 +1597,11 @@ export default function Dashboard() {
         isServiceAcknowledged
     ]);
 
-    // ============================================================
-    // DASHBOARD TABLE SERVICES (with pagination)
-    // ============================================================
     const dashboardTableServices = useMemo(() => {
         let source = dashboardGlobalListMode
             ? dashboardGlobalServices
             : filteredServices;
 
-        // Apply status filter
         let filtered = source.filter(service => {
             const ack = isServiceAcknowledged(service);
             if (statusFilter === 'unhandled') return !ack;
@@ -1271,7 +1611,6 @@ export default function Dashboard() {
 
         setFilteredCount(filtered.length);
 
-        // Apply pagination slicing
         const startIndex = (servicePage - 1) * serviceLimit;
         const endIndex = startIndex + serviceLimit;
         const paginated = filtered.slice(startIndex, endIndex);
@@ -1287,9 +1626,6 @@ export default function Dashboard() {
         serviceLimit
     ]);
 
-    // ============================================================
-    // CALCULATE FILTERED COUNT (before pagination)
-    // ============================================================
     const filteredPollerServices = useMemo(() => {
         let services = pollerServices;
         if (currentTableType === 'all') services = pollerServices;
@@ -1297,7 +1633,6 @@ export default function Dashboard() {
         else if (currentTableType === 'warning') services = pollerServices.filter(service => service.statusCode === 1);
         else if (currentTableType === 'unknown') services = pollerServices.filter(service => service.statusCode === 3);
 
-        // Apply status filter
         return services.filter(service => {
             const ack = isServiceAcknowledged(service);
             if (statusFilter === 'unhandled') return !ack;
@@ -1306,9 +1641,6 @@ export default function Dashboard() {
         });
     }, [pollerServices, currentTableType, statusFilter, isServiceAcknowledged]);
 
-    // ============================================================
-    // UNIQUE HOSTS & SERVICES FOR COMBOBOX
-    // ============================================================
     const uniqueHosts = useMemo(() => {
         const source = dashboardGlobalListMode
             ? dashboardGlobalServices
@@ -1331,9 +1663,6 @@ export default function Dashboard() {
         return [...new Set(services)].sort();
     }, [dashboardGlobalListMode, dashboardGlobalServices, filteredServices]);
 
-    // ============================================================
-    // PAGINATION HELPERS
-    // ============================================================
     const totalPages = useMemo(() => {
         if (dashboardGlobalListMode) {
             const pages = Math.max(1, Math.ceil(filteredCount / serviceLimit));
@@ -1514,7 +1843,6 @@ export default function Dashboard() {
 
             const token = localStorage.getItem('centreon_auth_token');
 
-            // Get the username from localStorage or use a default
             const username = localStorage.getItem('centreon_username') || 'Unknown User';
 
             const payload = {
@@ -1525,7 +1853,6 @@ export default function Dashboard() {
                 hostAddress
             };
 
-            // Use custom comment if provided, otherwise use "Acknowledged By {username}"
             if (customComment) {
                 payload.comment = customComment;
             } else {
@@ -1646,6 +1973,11 @@ export default function Dashboard() {
                         <span className="nav-text">Pollers</span>
                     </Link>
 
+                    <Link to="/datacenter" className={`nav-item ${location.pathname === '/datacenter' ? 'active' : ''}`}>
+                        <span className="nav-icon">🏢</span>
+                        <span className="nav-text">Data Center</span>
+                    </Link>
+
                     <Link to="/logs" className={`nav-item ${location.pathname === '/logs' ? 'active' : ''}`}>
                         <span className="nav-icon">📋</span>
                         <span className="nav-text">Audit Logs</span>
@@ -1665,6 +1997,7 @@ export default function Dashboard() {
                 <header className="content-header">
                     <h1>
                         {location.pathname === '/dashboard' && 'Centreon Service Status Dashboard'}
+                        {location.pathname === '/datacenter' && 'Data Center Overview'}
                         {location.pathname === '/pollers' && 'Pollers Overview'}
                         {location.pathname === '/sla' && 'SLA Metrics'}
                         {location.pathname === '/logs' && 'System Audit Log'}
@@ -1680,7 +2013,6 @@ export default function Dashboard() {
 
                 {(location.pathname === '/dashboard' || (location.pathname === '/pollers' && selectedPoller)) && (
                     <div className="stats-grid" style={{ marginBottom: '24px' }}>
-                        {/* ALL CARD */}
                         <div
                             className={`stat-card all ${currentTableType === 'all' ? 'active' : ''}`}
                             onClick={() => {
@@ -1698,7 +2030,6 @@ export default function Dashboard() {
                             <div className="stat-label">All Active Issues</div>
                         </div>
 
-                        {/* CRITICAL CARD */}
                         <div
                             className={`stat-card critical ${currentTableType === 'critical' ? 'active' : ''}`}
                             onClick={() => {
@@ -1716,7 +2047,6 @@ export default function Dashboard() {
                             <div className="stat-label">Critical</div>
                         </div>
 
-                        {/* WARNING CARD */}
                         <div
                             className={`stat-card warning ${currentTableType === 'warning' ? 'active' : ''}`}
                             onClick={() => {
@@ -1734,7 +2064,6 @@ export default function Dashboard() {
                             <div className="stat-label">Warning</div>
                         </div>
 
-                        {/* UNKNOWN CARD */}
                         <div
                             className={`stat-card unknown ${currentTableType === 'unknown' ? 'active' : ''}`}
                             onClick={() => {
@@ -1801,7 +2130,6 @@ export default function Dashboard() {
                                         </select>
                                     </div>
 
-                                    {/* STATUS FILTER DROPDOWN */}
                                     <div className="filter-input-group-compact">
                                         <label>STATUS</label>
                                         <select
@@ -2301,6 +2629,24 @@ export default function Dashboard() {
                 )}
 
                 {location.pathname === '/sla' && <Sla />}
+                {location.pathname === '/datacenter' && (
+                    <div className="page active">
+                        <DataCenterContent
+                            groups={dataCenterGroups}
+                            loading={dataCenterLoading}
+                            error={dataCenterError}
+                            selectedGroup={dataCenterSelectedGroup}
+                            setSelectedGroup={setDataCenterSelectedGroup}
+                            detailPage={dataCenterDetailPage}
+                            setDetailPage={setDataCenterDetailPage}
+                            detailLimit={dataCenterDetailLimit}
+                            setDetailLimit={setDataCenterDetailLimit}
+                            detailFilter={dataCenterDetailFilter}
+                            setDetailFilter={setDataCenterDetailFilter}
+                            fetchHostGroups={fetchDataCenterHostGroups}
+                        />
+                    </div>
+                )}
                 {location.pathname === '/logs' && <Logs />}
 
                 {showAckModal && (
@@ -2351,10 +2697,7 @@ export default function Dashboard() {
                                     className="modal-btn modal-btn-confirm"
                                     onClick={() => {
                                         if (pendingAck) {
-                                            // Get username for default comment
                                             const username = localStorage.getItem('centreon_username') || 'Unknown User';
-
-                                            // Use custom comment if provided, otherwise use "Acknowledged By {username}"
                                             const comment = ackComment.trim() || `Acknowledged By ${username}`;
 
                                             handleAcknowledge(

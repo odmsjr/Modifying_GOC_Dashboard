@@ -15,11 +15,11 @@ function App() {
       <Route path="/logout" element={<Logout />} />
 
       {/* 2. Protected Dashboard Workspace */}
-      {/* The '*' wildcard catches paths like /dashboard, /sla, /pollers, /logs */}
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/pollers" element={<Dashboard />} />
       <Route path="/logs" element={<Dashboard />} />
-
+      {/* ✅ ADD THIS LINE */}
+      <Route path="/datacenter" element={<Dashboard />} />
 
       {/* 3. Fallback: Redirect any unknown path back to login */}
       <Route path="*" element={<Navigate to="/login" replace />} />

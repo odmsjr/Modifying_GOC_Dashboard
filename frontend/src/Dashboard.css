@@ -1877,3 +1877,330 @@ button.ack-badge.ack-success-badge:disabled {
         padding: 10px 14px;
     }
 }
+
+/* ============================================================ */
+/* DATA CENTER STYLES                                            */
+/* ============================================================ */
+
+.data-center-container {
+    padding: 20px 0;
+}
+
+/* ----- HEADER ----- */
+.data-center-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.data-center-header h2 {
+    font-size: 24px;
+    font-weight: 700;
+    color: #e6edf3;
+    margin: 0;
+}
+
+.data-center-count {
+    color: #8b949e;
+    font-size: 14px;
+    background: #21262d;
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: 1px solid #30363d;
+}
+
+/* ----- DETAIL VIEW HEADER ----- */
+.data-center-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.data-center-detail-header h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #e6edf3;
+    margin: 0;
+}
+
+.data-center-detail-header .refresh-btn {
+    background-color: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-height: auto;
+}
+
+.data-center-detail-header .refresh-btn:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+    color: #58a6ff;
+}
+
+/* ----- STATS CARDS IN DETAIL VIEW (matches Dashboard) ----- */
+.data-center-container .stats-grid {
+    margin-bottom: 24px;
+}
+
+.data-center-container .stat-card {
+    cursor: default;
+}
+
+.data-center-container .stat-card:hover {
+    transform: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* ----- TABLE WRAPPER ----- */
+.data-center-table-wrapper {
+    background-color: #161b22;
+    border-radius: 12px;
+    border: 1px solid #30363d;
+    overflow: hidden;
+}
+
+/* ----- SUMMARY TABLE ----- */
+.data-center-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.data-center-table th {
+    text-align: left;
+    padding: 14px 16px;
+    background-color: #0d1117;
+    color: #8b949e;
+    font-weight: 600;
+    border-bottom: 2px solid #30363d;
+}
+
+.data-center-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #21262d;
+    color: #e6edf3;
+}
+
+.data-center-row {
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.data-center-row:hover {
+    background-color: #21262d;
+}
+
+.data-center-row .group-name {
+    font-weight: 500;
+    color: #58a6ff;
+}
+
+.click-icon {
+    color: #8b949e;
+    font-size: 12px;
+    margin-right: 8px;
+    display: inline-block;
+}
+
+/* ----- DETAIL TABLE ----- */
+.data-center-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.data-center-detail-table th {
+    text-align: left;
+    padding: 14px 16px;
+    background-color: #0d1117;
+    color: #8b949e;
+    font-weight: 600;
+    border-bottom: 2px solid #30363d;
+}
+
+.data-center-detail-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #21262d;
+    color: #e6edf3;
+}
+
+.data-center-detail-table .host-name {
+    color: #58a6ff;
+    font-weight: 500;
+}
+
+.data-center-detail-table tr:hover td {
+    background-color: #21262d;
+}
+
+/* ----- STATUS BADGES ----- */
+.host-status {
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-0 { background: #238636; color: #fff; }  /* UP */
+.status-1 { background: #da3633; color: #fff; }  /* DOWN */
+.status-2 { background: #d29922; color: #fff; }  /* UNREACHABLE */
+.status-3 { background: #6b7280; color: #fff; }  /* PENDING */
+
+/* ----- COUNT COLORS (reuse from main) ----- */
+.total-count {
+    font-weight: 700;
+    color: #e6edf3;
+}
+
+.critical-count {
+    color: #f85149;
+    font-weight: 600;
+}
+
+.warning-count {
+    color: #d29922;
+    font-weight: 600;
+}
+
+.unknown-count {
+    color: #8b949e;
+    font-weight: 600;
+}
+
+/* ----- PAGINATION CONTROLS ----- */
+.data-center-detail-controls-bottom {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 16px;
+}
+
+.data-center-pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.data-center-pagination-label {
+    color: #8b949e;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.data-center-page-size-select {
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+}
+
+.data-center-page-size-select:hover {
+    border-color: #58a6ff;
+}
+
+.data-center-page-size-select:focus {
+    border-color: #58a6ff;
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.3);
+}
+
+.data-center-pagination-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.data-center-page-btn {
+    background: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.data-center-page-btn:hover:not(:disabled) {
+    background: #30363d;
+    border-color: #58a6ff;
+    color: #58a6ff;
+}
+
+.data-center-page-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.data-center-page-info {
+    color: #8b949e;
+    font-size: 13px;
+    padding: 0 8px;
+    min-width: 80px;
+    text-align: center;
+}
+
+/* ----- LOADING & ERROR STATES ----- */
+.data-center-loading,
+.data-center-error {
+    padding: 40px;
+    text-align: center;
+    color: #8b949e;
+}
+
+.data-center-error button {
+    margin-top: 12px;
+    padding: 8px 16px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    cursor: pointer;
+}
+
+.data-center-error button:hover {
+    background: #30363d;
+}
+
+.no-data {
+    text-align: center;
+    padding: 40px !important;
+    color: #8b949e;
+}
+
+/* ----- RESPONSIVE ----- */
+@media (max-width: 768px) {
+    .data-center-table {
+        font-size: 12px;
+    }
+    .data-center-table th,
+    .data-center-table td {
+        padding: 8px 10px;
+    }
+
+    .data-center-detail-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .data-center-detail-controls-bottom {
+        justify-content: flex-start;
+    }
+    .data-center-pagination-controls {
+        flex-wrap: wrap;
+    }
+}
+
