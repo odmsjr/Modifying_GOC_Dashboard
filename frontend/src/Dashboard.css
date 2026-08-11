@@ -472,12 +472,15 @@ body {
 }
 
 /* ============================================================ */
-/* ACKNOWLEDGE BUTTONS - Status Based Colors                    */
+/* ACKNOWLEDGEMENTS                                             */
 /* ============================================================ */
 
-/* Base acknowledge button */
+/* Main ACKNOWLEDGE button before acknowledgement */
 .ack-btn,
 .ack-action-btn {
+    background-color: #585858 !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(46, 160, 67, 0.75) !important;
     padding: 5px 12px !important;
     border-radius: 999px !important;
     font-size: 11px !important;
@@ -488,58 +491,24 @@ body {
     white-space: nowrap !important;
     display: inline-block !important;
     font-family: inherit;
-    border: 1px solid transparent !important;
-    color: #ffffff !important;
 }
 
-/* CRITICAL - Red */
-.ack-critical {
-    background-color: #da3633 !important;
-    border-color: #da3633 !important;
-}
-
-.ack-critical:hover:not(:disabled) {
-    background-color: #f85149 !important;
-    border-color: #f85149 !important;
+.ack-btn:hover:not(:disabled),
+.ack-action-btn:hover:not(:disabled) {
+    background-color: #238636 !important;
     transform: scale(1.03);
 }
 
-/* WARNING - Orange */
-.ack-warning {
-    background-color: #d29922 !important;
-    border-color: #d29922 !important;
-}
-
-.ack-warning:hover:not(:disabled) {
-    background-color: #ff9830 !important;
-    border-color: #ff9830 !important;
-    transform: scale(1.03);
-}
-
-/* UNKNOWN - Gray */
-.ack-unknown {
-    background-color: #6b7280 !important;
-    border-color: #6b7280 !important;
-}
-
-.ack-unknown:hover:not(:disabled) {
-    background-color: #8b949e !important;
-    border-color: #8b949e !important;
-    transform: scale(1.03);
-}
-
-/* Disabled state for all */
 .ack-btn:disabled,
 .ack-action-btn:disabled {
-    opacity: 0.5 !important;
-    cursor: not-allowed !important;
-    transform: none !important;
+    background-color: #30363d !important;
+    border-color: #484f58 !important;
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
 }
 
-/* ============================================================ */
-/* ACKNOWLEDGED BADGE - Green (overrides status)                */
-/* ============================================================ */
-
+/* ACKNOWLEDGED button after acknowledgement */
 .ack-badge,
 .ack-success-badge,
 button.ack-badge,
@@ -554,6 +523,7 @@ button.ack-badge.ack-success-badge {
     font-size: 11px !important;
     font-weight: 800 !important;
     letter-spacing: 0.3px !important;
+    cursor: pointer !important;
     transition: all 0.2s ease;
     white-space: nowrap !important;
     display: inline-block !important;
@@ -563,37 +533,15 @@ button.ack-badge.ack-success-badge {
     box-shadow: none !important;
 }
 
-
-/* Poller view - clickable for unacknowledge */
-.pollers-container .ack-badge,
-.pollers-container .ack-success-badge,
-.pollers-container button.ack-badge,
-.pollers-container button.ack-success-badge {
-    cursor: pointer !important;
-    pointer-events: auto !important;
-    opacity: 1;
-}
-
 .ack-badge:hover:not(:disabled),
 .ack-success-badge:hover:not(:disabled),
 button.ack-badge:hover:not(:disabled),
 button.ack-success-badge:hover:not(:disabled),
 button.ack-badge.ack-success-badge:hover:not(:disabled) {
     background-color: #2ea043 !important;
-    background: #2ea043 !important;
-    border-color: #3fb950 !important;
+    background: #a02e2e !important;
+    border-color: rgb(215, 253, 0) !important;
     transform: scale(1.03);
-}
-
-/* Poller view hover - darken for unacknowledge action */
-.pollers-container .ack-badge:hover:not(:disabled),
-.pollers-container .ack-success-badge:hover:not(:disabled),
-.pollers-container button.ack-badge:hover:not(:disabled),
-.pollers-container button.ack-success-badge:hover:not(:disabled),
-.pollers-container button.ack-badge.ack-success-badge:hover:not(:disabled) {
-    background-color: #1e7e34 !important;
-    background: #1e7e34 !important;
-    border-color: #2ea043 !important;
 }
 
 .ack-badge:disabled,
@@ -601,10 +549,11 @@ button.ack-badge.ack-success-badge:hover:not(:disabled) {
 button.ack-badge:disabled,
 button.ack-success-badge:disabled,
 button.ack-badge.ack-success-badge:disabled {
-    opacity: 0.6;
+    background-color: #238636 !important;
+    background: #f10202 !important;
+    opacity: 0.7;
     cursor: not-allowed !important;
     transform: none;
-    pointer-events: none !important;
 }
 
 /* ACK cell layout */
@@ -1114,6 +1063,11 @@ button.ack-badge.ack-success-badge:disabled {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
+/* Make acknowledged badge cleaner */
+.ack-badge {
+    background-color: rgba(111, 66, 193, 0.85) !important;
+    border: 1px solid rgba(163, 113, 247, 0.45);
+}
 
 /* Pending badge if used in JSX */
 .pending-badge {
@@ -1602,507 +1556,326 @@ button.ack-badge.ack-success-badge:disabled {
         width: 100%;
     }
 }
-/* ============================================================ */
-/* SERVICE STATUS FILTER - Extra spacing                        */
-/* ============================================================ */
 
-.filter-status-group {
-    min-width: 160px;
+/* ============================================================
+   NEW DASHBOARD FEATURES
+   Append this block to the END of Dashboard.css
+   ============================================================ */
+
+/* ============================================================
+   FOUR-COLUMN DASHBOARD FILTER BAR
+   Host, Service, Poller, and Status
+   ============================================================ */
+
+.filter-controls-inline {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(180px, 1fr));
+    align-items: center;
+    gap: 16px;
 }
 
-.filter-status-group select {
-    min-width: 140px;
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .filter-status-group {
-        min-width: unset;
-        width: 100%;
-    }
-
-    .filter-status-group select {
-        width: 100%;
-    }
-}
-
-/* ============================================================ */
-/* SUGGESTIONS DROPDOWN                                         */
-/* ============================================================ */
-
-.suggestions-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    max-height: 200px;
-    overflow-y: auto;
-    z-index: 1000;
-    margin-top: 4px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-}
-
-.suggestion-item {
-    padding: 8px 12px;
-    cursor: pointer;
-    color: #e6edf3;
-    font-size: 12px;
-    transition: background 0.2s;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.suggestion-item:hover {
-    background-color: #21262d;
-    color: #58a6ff;
-}
-
-.suggestion-item:active {
-    background-color: #1f6feb;
-    color: #ffffff;
-}
-
-/* Scrollbar styling */
-.suggestions-dropdown::-webkit-scrollbar {
-    width: 6px;
-}
-
-.suggestions-dropdown::-webkit-scrollbar-track {
-    background: #0d1117;
-}
-
-.suggestions-dropdown::-webkit-scrollbar-thumb {
-    background: #30363d;
-    border-radius: 3px;
-}
-
-.suggestions-dropdown::-webkit-scrollbar-thumb:hover {
-    background: #484f58;
-}
-
-/* ============================================================ */
-/* COMBOBOX FILTER - Custom Autocomplete                        */
-/* ============================================================ */
-
-.combobox-container {
-    position: relative;
+.filter-input-group-compact {
     width: 100%;
-    min-width: 150px;
+    min-width: 0;
 }
 
-.combobox-input-wrapper {
-    position: relative;
+.filter-input-compact,
+.filter-select-compact {
+    width: 100%;
+}
+
+/*
+ * Use the browser's native select arrow.
+ * This avoids malformed embedded SVG content.
+ */
+.filter-select,
+.filter-select-compact {
+    appearance: auto;
+    background-image: none !important;
+}
+
+/* Correct selector if the old file contains &gt; */
+.pollers-header > div {
     display: flex;
     align-items: center;
-    width: 100%;
+    gap: 16px;
+    flex-wrap: wrap;
 }
 
-.combobox-input {
-    width: 100%;
-    padding: 6px 28px 6px 10px;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    color: #e6edf3;
-    font-size: 12px;
-    min-height: 32px;
-    transition: border-color 0.2s, box-shadow 0.2s;
+
+/* ============================================================
+   ACKNOWLEDGE BUTTONS
+   Before ACK: dark gray
+   Hover: green
+   ============================================================ */
+
+.ack-btn,
+.ack-action-btn,
+button.ack-btn,
+button.ack-action-btn {
+    background: #585858 !important;
+    background-color: #585858 !important;
+    color: #ffffff !important;
+    border: 1px solid #6e7681 !important;
+
+    padding: 5px 12px !important;
+    border-radius: 999px !important;
+
+    font-family: inherit !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.3px !important;
+
+    cursor: pointer !important;
+    white-space: nowrap !important;
+
+    transition:
+        background-color 0.2s ease,
+        border-color 0.2s ease,
+        transform 0.2s ease,
+        opacity 0.2s ease;
+}
+
+.ack-btn:hover:not(:disabled),
+.ack-action-btn:hover:not(:disabled),
+button.ack-btn:hover:not(:disabled),
+button.ack-action-btn:hover:not(:disabled) {
+    background: #238636 !important;
+    background-color: #238636 !important;
+    border-color: #2ea043 !important;
+    transform: scale(1.03);
+}
+
+.ack-btn:disabled,
+.ack-action-btn:disabled,
+button.ack-btn:disabled,
+button.ack-action-btn:disabled {
+    background: #30363d !important;
+    background-color: #30363d !important;
+    border-color: #484f58 !important;
+
+    opacity: 0.7 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+}
+
+
+/* ============================================================
+   ACKNOWLEDGED BUTTON
+   Normal, hover, and disabled states remain green
+   ============================================================ */
+
+.ack-badge,
+.ack-success-badge,
+button.ack-badge,
+button.ack-success-badge,
+button.ack-badge.ack-success-badge {
+    background: #238636 !important;
+    background-color: #238636 !important;
+    color: #ffffff !important;
+    border: 1px solid #2ea043 !important;
+
+    padding: 5px 14px !important;
+    border-radius: 999px !important;
+
+    font-family: inherit !important;
+    font-size: 11px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.3px !important;
+
+    cursor: pointer !important;
+    white-space: nowrap !important;
+
+    appearance: none;
     outline: none;
-    padding-right: 48px;
+    box-shadow: none !important;
+
+    transition:
+        background-color 0.2s ease,
+        border-color 0.2s ease,
+        transform 0.2s ease,
+        opacity 0.2s ease;
 }
 
-.combobox-input:focus {
-    border-color: #1f6feb;
-    box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.2);
+.ack-badge:hover:not(:disabled),
+.ack-success-badge:hover:not(:disabled),
+button.ack-badge:hover:not(:disabled),
+button.ack-success-badge:hover:not(:disabled),
+button.ack-badge.ack-success-badge:hover:not(:disabled) {
+    background: #2ea043 !important;
+    background-color: #2ea043 !important;
+    border-color: #3fb950 !important;
+    transform: scale(1.03);
 }
 
-.combobox-input::placeholder {
-    color: #6e7681;
-    font-size: 11px;
+.ack-badge:disabled,
+.ack-success-badge:disabled,
+button.ack-badge:disabled,
+button.ack-success-badge:disabled,
+button.ack-badge.ack-success-badge:disabled {
+    background: #238636 !important;
+    background-color: #238636 !important;
+    border-color: #2ea043 !important;
+
+    opacity: 0.6 !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+    transform: none !important;
 }
 
-.combobox-clear-btn {
-    position: absolute;
-    right: 28px;
-    background: none;
-    border: none;
-    color: #6e7681;
-    cursor: pointer;
-    font-size: 12px;
-    padding: 0 4px;
-    transition: color 0.2s;
-}
-
-.combobox-clear-btn:hover {
-    color: #e6edf3;
-}
-
-.combobox-toggle-btn {
-    position: absolute;
-    right: 4px;
-    background: none;
-    border: none;
-    color: #6e7681;
-    cursor: pointer;
-    font-size: 12px;
-    padding: 4px 8px;
-    transition: color 0.2s;
-}
-
-.combobox-toggle-btn:hover {
-    color: #e6edf3;
-}
-
-.combobox-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    max-height: 260px;
-    overflow-y: auto;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    margin-top: 4px;
-    z-index: 1000;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-    scroll-behavior: smooth;
-}
-
-/* Scrollbar for dropdown */
-.combobox-dropdown::-webkit-scrollbar {
-    width: 6px;
-}
-
-.combobox-dropdown::-webkit-scrollbar-track {
-    background: #0d1117;
-    border-radius: 3px;
-}
-
-.combobox-dropdown::-webkit-scrollbar-thumb {
-    background: #30363d;
-    border-radius: 3px;
-}
-
-.combobox-dropdown::-webkit-scrollbar-thumb:hover {
-    background: #484f58;
-}
-
-.combobox-option {
-    padding: 8px 14px;
-    color: #c9d1d9;
-    cursor: pointer;
-    font-size: 12px;
-    transition: background 0.15s, color 0.15s;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.combobox-option:hover {
-    background: #21262d;
-    color: #e6edf3;
-}
-
-.combobox-option.highlighted {
-    background: #1f6feb;
-    color: #ffffff;
-}
-
-.combobox-option.selected {
-    color: #58a6ff;
-    font-weight: 600;
-}
-
-.combobox-option.selected::before {
-    content: '✓ ';
-    color: #58a6ff;
-}
-
-.combobox-option-all {
-    border-bottom: 1px solid #30363d;
-    color: #8b949e !important;
-    font-weight: 600;
-    margin-bottom: 4px;
-}
-
-.combobox-option-all:hover {
-    background: #21262d;
-    color: #e6edf3 !important;
-}
-
-.combobox-option-all.active {
-    color: #58a6ff !important;
-}
-
-.combobox-option-all::before {
-    content: '🔄 ';
-}
-
-.combobox-no-results {
-    padding: 12px 14px;
-    color: #6e7681;
-    font-size: 12px;
+.ack-cell {
     text-align: center;
+    white-space: nowrap;
 }
 
-/* ============================================================ */
-/* RESPONSIVE - Combobox                                        */
-/* ============================================================ */
 
-@media (max-width: 768px) {
-    .combobox-container {
-        min-width: unset;
-        width: 100%;
-    }
+/* ============================================================
+   ACKNOWLEDGED SERVICE ROW
+   ============================================================ */
 
-    .combobox-input {
-        font-size: 14px;
-        min-height: 40px;
-    }
-
-    .combobox-dropdown {
-        max-height: 200px;
-    }
-
-    .combobox-option {
-        font-size: 13px;
-        padding: 10px 14px;
-    }
+.services-table tr.service-row-acknowledged td {
+    background-color: rgba(35, 134, 54, 0.22) !important;
+    border-bottom-color: rgba(46, 160, 67, 0.25) !important;
 }
 
-/* ============================================================ */
-/* DATA CENTER STYLES                                            */
-/* ============================================================ */
+.services-table tr.service-row-acknowledged:hover td {
+    background-color: rgba(35, 134, 54, 0.32) !important;
+}
+
+.services-table tr.service-row-acknowledged td:first-child {
+    border-left: 4px solid #2ea043 !important;
+}
+
+
+/* ============================================================
+   DATA CENTER CONTAINER
+   ============================================================ */
 
 .data-center-container {
-    padding: 20px 0;
+    width: 100%;
+    padding: 0;
 }
 
-/* ----- HEADER ----- */
-.data-center-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-}
-
-.data-center-header h2 {
-    font-size: 24px;
-    font-weight: 700;
-    color: #e6edf3;
-    margin: 0;
-}
-
-.data-center-count {
-    color: #8b949e;
-    font-size: 14px;
-    background: #21262d;
-    padding: 4px 12px;
-    border-radius: 12px;
-    border: 1px solid #30363d;
-}
-
-/* ----- DETAIL VIEW HEADER ----- */
-.data-center-detail-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-    gap: 12px;
-}
-
-.data-center-detail-header h2 {
-    font-size: 20px;
-    font-weight: 600;
-    color: #e6edf3;
-    margin: 0;
-}
-
-.data-center-detail-header .refresh-btn {
-    background-color: #21262d;
-    color: #c9d1d9;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 6px 14px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    min-height: auto;
-}
-
-.data-center-detail-header .refresh-btn:hover {
-    background: #30363d;
-    border-color: #58a6ff;
-    color: #58a6ff;
-}
-
-/* ----- STATS CARDS IN DETAIL VIEW (matches Dashboard) ----- */
-.data-center-container .stats-grid {
+.data-center-container .top-row {
     margin-bottom: 24px;
 }
 
+
+/* ============================================================
+   DATA CENTER FILTER BAR
+   Search, Status, and Refresh
+   ============================================================ */
+
+.data-center-container .filter-controls-inline {
+    display: grid;
+    grid-template-columns:
+        minmax(260px, 2fr)
+        minmax(210px, 1fr)
+        auto;
+    align-items: center;
+    gap: 16px;
+}
+
+.data-center-container .filter-controls-inline .refresh-btn {
+    min-width: 160px;
+    white-space: nowrap;
+}
+
+
+/* ============================================================
+   DATA CENTER STATUS CARDS
+   Supports four summary cards and five detail cards
+   ============================================================ */
+
+.data-center-container .stats-grid {
+    display: grid;
+    grid-template-columns:
+        repeat(auto-fit, minmax(180px, 1fr));
+
+    gap: 18px;
+    width: 100%;
+}
+
 .data-center-container .stat-card {
-    cursor: default;
+    min-width: 0;
+    min-height: 126px;
+    padding: 22px 16px;
 }
 
 .data-center-container .stat-card:hover {
-    transform: none;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transform: translateY(-2px);
 }
 
-/* ----- TABLE WRAPPER ----- */
-.data-center-table-wrapper {
-    background-color: #161b22;
-    border-radius: 12px;
-    border: 1px solid #30363d;
-    overflow: hidden;
-}
 
-/* ----- SUMMARY TABLE ----- */
-.data-center-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14px;
-}
+/* ============================================================
+   DATA CENTER DETAIL HEADER
+   ============================================================ */
 
-.data-center-table th {
-    text-align: left;
-    padding: 14px 16px;
-    background-color: #0d1117;
-    color: #8b949e;
-    font-weight: 600;
-    border-bottom: 2px solid #30363d;
-}
-
-.data-center-table td {
-    padding: 12px 16px;
-    border-bottom: 1px solid #21262d;
-    color: #e6edf3;
-}
-
-.data-center-row {
-    cursor: pointer;
-    transition: background-color 0.15s;
-}
-
-.data-center-row:hover {
-    background-color: #21262d;
-}
-
-.data-center-row .group-name {
-    font-weight: 500;
-    color: #58a6ff;
-}
-
-.click-icon {
-    color: #8b949e;
-    font-size: 12px;
-    margin-right: 8px;
-    display: inline-block;
-}
-
-/* ----- DETAIL TABLE ----- */
-.data-center-detail-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14px;
-}
-
-.data-center-detail-table th {
-    text-align: left;
-    padding: 14px 16px;
-    background-color: #0d1117;
-    color: #8b949e;
-    font-weight: 600;
-    border-bottom: 2px solid #30363d;
-}
-
-.data-center-detail-table td {
-    padding: 12px 16px;
-    border-bottom: 1px solid #21262d;
-    color: #e6edf3;
-}
-
-.data-center-detail-table .host-name {
-    color: #58a6ff;
-    font-weight: 500;
-}
-
-.data-center-detail-table tr:hover td {
-    background-color: #21262d;
-}
-
-/* ----- STATUS BADGES ----- */
-.host-status {
-    padding: 2px 10px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-}
-
-.status-0 { background: #238636; color: #fff; }  /* UP */
-.status-1 { background: #da3633; color: #fff; }  /* DOWN */
-.status-2 { background: #d29922; color: #fff; }  /* UNREACHABLE */
-.status-3 { background: #6b7280; color: #fff; }  /* PENDING */
-
-/* ----- COUNT COLORS (reuse from main) ----- */
-.total-count {
-    font-weight: 700;
-    color: #e6edf3;
-}
-
-.critical-count {
-    color: #f85149;
-    font-weight: 600;
-}
-
-.warning-count {
-    color: #d29922;
-    font-weight: 600;
-}
-
-.unknown-count {
-    color: #8b949e;
-    font-weight: 600;
-}
-
-/* ----- PAGINATION CONTROLS ----- */
-.data-center-detail-controls-bottom {
-    display: flex;
-    justify-content: flex-end;
-    margin-bottom: 16px;
-}
-
-.data-center-pagination-controls {
+.data-center-detail-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    justify-content: flex-start;
+
+    gap: 16px;
     flex-wrap: wrap;
+
+    margin-bottom: 20px;
 }
 
-.data-center-pagination-label {
+.data-center-detail-header h2 {
+    margin: 0;
+
+    color: #e6edf3;
+    font-size: 22px;
+    font-weight: 700;
+
+    overflow-wrap: anywhere;
+}
+
+.data-center-detail-header .refresh-btn {
+    flex-shrink: 0;
+}
+
+
+/* ============================================================
+   DATA CENTER PAGINATION AND CONTROLS
+   ============================================================ */
+
+.data-center-detail-controls-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+
+    gap: 10px;
+    flex-wrap: wrap;
+
+    margin: 0 0 16px;
+    padding: 12px 14px;
+
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+
     color: #8b949e;
     font-size: 13px;
-    font-weight: 500;
+}
+
+.data-center-detail-controls-bottom > span:first-child {
+    margin-right: auto;
 }
 
 .data-center-page-size-select {
+    min-width: 72px;
+    min-height: 32px;
+
+    padding: 5px 10px;
+
     background: #0d1117;
     color: #c9d1d9;
+
     border: 1px solid #30363d;
     border-radius: 6px;
-    padding: 4px 10px;
+
     font-size: 13px;
     cursor: pointer;
     outline: none;
@@ -2114,93 +1887,1138 @@ button.ack-badge.ack-success-badge:disabled {
 
 .data-center-page-size-select:focus {
     border-color: #58a6ff;
-    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.3);
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
 }
 
-.data-center-pagination-buttons {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+.data-center-page-size-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .data-center-page-btn {
+    min-height: 32px;
+    padding: 5px 12px;
+
     background: #21262d;
     color: #c9d1d9;
+
     border: 1px solid #30363d;
     border-radius: 6px;
-    padding: 4px 12px;
+
     font-size: 13px;
+    font-weight: 600;
+
     cursor: pointer;
-    transition: all 0.2s ease;
-    font-weight: 500;
+
+    transition:
+        background-color 0.2s ease,
+        border-color 0.2s ease,
+        color 0.2s ease,
+        transform 0.2s ease;
 }
 
 .data-center-page-btn:hover:not(:disabled) {
     background: #30363d;
     border-color: #58a6ff;
     color: #58a6ff;
+
+    transform: translateY(-1px);
 }
 
 .data-center-page-btn:disabled {
-    opacity: 0.3;
+    opacity: 0.35;
     cursor: not-allowed;
+    transform: none;
 }
 
-.data-center-page-info {
-    color: #8b949e;
-    font-size: 13px;
-    padding: 0 8px;
-    min-width: 80px;
-    text-align: center;
-}
 
-/* ----- LOADING & ERROR STATES ----- */
-.data-center-loading,
-.data-center-error {
-    padding: 40px;
-    text-align: center;
-    color: #8b949e;
-}
+/* ============================================================
+   DATA CENTER TABLE WRAPPER
+   ============================================================ */
 
-.data-center-error button {
-    margin-top: 12px;
-    padding: 8px 16px;
-    background: #21262d;
+.data-center-table-wrapper {
+    width: 100%;
+
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+
+    background: #161b22;
     border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #e6edf3;
-    cursor: pointer;
+    border-radius: 12px;
+
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
 }
 
-.data-center-error button:hover {
-    background: #30363d;
+
+/* ============================================================
+   DATA CENTER SUMMARY AND DETAIL TABLES
+   ============================================================ */
+
+.data-center-table,
+.data-center-detail-table {
+    width: 100%;
+    min-width: 880px;
+
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.data-center-table th,
+.data-center-detail-table th {
+    padding: 13px 16px;
+
+    text-align: left;
+    white-space: nowrap;
+
+    background: #0d1117;
+    color: #8b949e;
+
+    border-bottom: 1px solid #30363d;
+
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.data-center-table td,
+.data-center-detail-table td {
+    padding: 12px 16px;
+
+    color: #e6edf3;
+    border-bottom: 1px solid #21262d;
+
+    vertical-align: middle;
+}
+
+.data-center-table tr:last-child td,
+.data-center-detail-table tr:last-child td {
+    border-bottom: none;
+}
+
+.data-center-row {
+    cursor: pointer;
+
+    transition:
+        background-color 0.15s ease;
+}
+
+.data-center-row:hover td,
+.data-center-detail-table tbody tr:hover td {
+    background: #21262d;
+}
+
+.data-center-row .group-name {
+    color: #58a6ff;
+    font-weight: 700;
+}
+
+.data-center-detail-table .host-name {
+    color: #c9e8ff;
+    font-weight: 700;
+}
+
+
+/* ============================================================
+   DATA CENTER COUNT COLORS
+   ============================================================ */
+
+.data-center-table .total-count,
+.data-center-detail-table .total-count {
+    color: #88ccff;
+    font-weight: 700;
+}
+
+.data-center-table .critical-count,
+.data-center-detail-table .critical-count {
+    color: #f85149;
+    font-weight: 700;
+}
+
+.data-center-table .warning-count,
+.data-center-detail-table .warning-count {
+    color: #ff9830;
+    font-weight: 700;
+}
+
+.data-center-table .unknown-count,
+.data-center-detail-table .unknown-count {
+    color: #8b949e;
+    font-weight: 700;
+}
+
+
+/* ============================================================
+   HOST STATUS BADGES
+   DOWN remains separate from Critical service counts
+   ============================================================ */
+
+.host-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: 86px;
+    padding: 4px 10px;
+
+    border-radius: 999px;
+
+    color: #ffffff;
+
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.35px;
+
+    white-space: nowrap;
+}
+
+/* UP */
+.host-status.status-0 {
+    background: #238636;
+}
+
+/* DOWN */
+.host-status.status-1 {
+    background: #da3633;
+}
+
+/* UNREACHABLE */
+.host-status.status-2 {
+    background: #6e40c9;
+}
+
+/* PENDING */
+.host-status.status-3 {
+    background: #6b7280;
+}
+
+
+/* ============================================================
+   DATA CENTER ERROR AND EMPTY STATES
+   ============================================================ */
+
+.data-center-error {
+    padding: 36px 24px;
+
+    text-align: center;
+    color: #f85149;
+
+    background: rgba(248, 81, 73, 0.08);
+    border: 1px solid rgba(248, 81, 73, 0.3);
+    border-radius: 12px;
+}
+
+.data-center-error .refresh-btn {
+    margin-top: 14px;
 }
 
 .no-data {
-    text-align: center;
     padding: 40px !important;
-    color: #8b949e;
+
+    text-align: center;
+    color: #8b949e !important;
 }
 
-/* ----- RESPONSIVE ----- */
-@media (max-width: 768px) {
-    .data-center-table {
-        font-size: 12px;
-    }
-    .data-center-table th,
-    .data-center-table td {
-        padding: 8px 10px;
+
+/* ============================================================
+   RESPONSIVE FILTERS AND DATA CENTER
+   ============================================================ */
+
+@media (max-width: 1400px) {
+    .filter-controls-inline {
+        grid-template-columns:
+            repeat(2, minmax(220px, 1fr));
     }
 
-    .data-center-detail-header {
-        flex-direction: column;
-        align-items: flex-start;
+    .data-center-container .filter-controls-inline {
+        grid-template-columns:
+            repeat(2, minmax(220px, 1fr));
     }
+
+    .data-center-container
+    .filter-controls-inline
+    .refresh-btn {
+        width: max-content;
+    }
+}
+
+@media (max-width: 900px) {
     .data-center-detail-controls-bottom {
         justify-content: flex-start;
     }
-    .data-center-pagination-controls {
-        flex-wrap: wrap;
+
+    .data-center-detail-controls-bottom
+    > span:first-child {
+        width: 100%;
+        margin-right: 0;
     }
 }
 
+@media (max-width: 768px) {
+    .filter-controls-inline,
+    .data-center-container
+    .filter-controls-inline {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+
+        gap: 10px;
+    }
+
+    .filter-input-group-compact,
+    .data-center-container
+    .filter-controls-inline
+    .refresh-btn {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .data-center-container .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .data-center-detail-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .data-center-detail-header .refresh-btn {
+        width: 100%;
+    }
+
+    .data-center-detail-controls-bottom {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .data-center-page-size-select,
+    .data-center-page-btn {
+        width: 100%;
+    }
+}
+/* ============================================================
+   HOST AND SERVICE ISSUE FILTER COMBOBOX
+   Added for click-to-select suggestions while preserving typing.
+   ============================================================ */
+
+.issue-filter-combobox {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+}
+
+.issue-filter-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.issue-filter-input {
+    width: 100%;
+    padding-right: 52px !important;
+}
+
+.issue-filter-clear,
+.issue-filter-toggle {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    color: #8b949e;
+    border: 0;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.issue-filter-clear {
+    right: 27px;
+}
+
+.issue-filter-toggle {
+    right: 4px;
+}
+
+.issue-filter-clear:hover,
+.issue-filter-toggle:hover {
+    background: #21262d;
+    color: #e6edf3;
+}
+
+.issue-filter-dropdown {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    z-index: 2000;
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 4px 0;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 7px;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+
+.issue-filter-option {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    overflow: hidden;
+    background: transparent;
+    color: #c9d1d9;
+    border: 0;
+    border-radius: 0;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1.35;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.issue-filter-option:hover,
+.issue-filter-option.highlighted {
+    background: #1f6feb;
+    color: #ffffff;
+}
+
+.issue-filter-option.selected {
+    color: #58a6ff;
+    font-weight: 700;
+}
+
+.issue-filter-option.selected:hover,
+.issue-filter-option.selected.highlighted {
+    color: #ffffff;
+}
+
+.issue-filter-option-all {
+    border-bottom: 1px solid #30363d;
+    color: #8b949e;
+    font-weight: 700;
+}
+
+.issue-filter-message {
+    padding: 12px;
+    color: #8b949e;
+    font-size: 12px;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.issue-filter-dropdown::-webkit-scrollbar {
+    width: 7px;
+}
+
+.issue-filter-dropdown::-webkit-scrollbar-track {
+    background: #0d1117;
+}
+
+.issue-filter-dropdown::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 999px;
+}
+
+.issue-filter-dropdown::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+@media (max-width: 768px) {
+    .issue-filter-combobox {
+        width: 100%;
+    }
+
+    .issue-filter-input {
+        min-height: 40px;
+        font-size: 14px;
+    }
+
+    .issue-filter-dropdown {
+        max-height: 220px;
+    }
+
+    .issue-filter-option {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+}
+
+/* Read-only authoritative handling state */
+.filter-readonly-compact {
+    flex: 1;
+    width: 100%;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    padding: 6px 10px;
+    background-color: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #e6edf3;
+    font-size: 12px;
+    line-height: 1.4;
+    cursor: default;
+    user-select: none;
+}
+
+.filter-readonly-compact::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    margin-right: 8px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background-color: #238636;
+    box-shadow: 0 0 0 3px rgba(35, 134, 54, 0.16);
+}
+
+@media (max-width: 768px) {
+    .filter-readonly-compact {
+        width: 100%;
+    }
+}
+
+/* ============================================================
+   RESPONSIVE LAYOUT HARDENING
+   Appended safely to preserve the existing desktop design.
+   Breakpoints: wide desktop, laptop, tablet, and mobile.
+   ============================================================ */
+
+/* Prevent flex/grid children and long values from forcing overflow. */
+html,
+body,
+#root,
+.app-container,
+.main-content,
+.page,
+.services-section,
+.pollers-container,
+.data-center-container {
+    max-width: 100%;
+}
+
+html,
+body {
+    overflow-x: hidden;
+}
+
+img,
+svg,
+canvas,
+video {
+    max-width: 100%;
+    height: auto;
+}
+
+.main-content,
+.content-header,
+.top-row,
+.stats-grid,
+.filter-section,
+.filter-section-compact,
+.filter-controls-inline,
+.filter-input-group,
+.filter-input-group-compact,
+.section-header,
+.section-header-left,
+.dashboard-pagination-controls-top,
+.dashboard-pagination-controls,
+.pollers-header,
+.pollers-pagination-controls,
+.pollers-pagination-left,
+.pollers-pagination-right,
+.data-center-detail-header,
+.data-center-detail-controls-bottom,
+.data-center-pagination-controls {
+    min-width: 0;
+}
+
+.filter-input,
+.filter-select,
+.filter-input-compact,
+.filter-select-compact,
+.search-input,
+.issue-filter-input,
+.filter-readonly-compact,
+.dashboard-page-size-select,
+.pollers-page-size-select,
+.data-center-page-size-select {
+    max-width: 100%;
+}
+
+.host-name,
+.service-name,
+.service-output,
+.section-title,
+.pollers-header h2,
+.data-center-detail-header h2,
+.modal-subtitle {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* Keep every table usable instead of allowing columns to overlap. */
+.table-wrapper,
+.pollers-table-wrapper,
+.data-center-table-wrapper,
+.pollers-container {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.services-table,
+.pollers-table,
+.data-center-table,
+.data-center-detail-table {
+    max-width: none;
+}
+
+/* Sticky table headings improve readability on smaller screens. */
+.services-table thead th,
+.pollers-table thead th,
+.data-center-table thead th,
+.data-center-detail-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+/* Wide desktop and smaller laptops. */
+@media (max-width: 1600px) {
+    .main-content {
+        padding: 22px 24px;
+    }
+
+    .content-header h1 {
+        font-size: clamp(34px, 3.2vw, 44px);
+    }
+
+    .stats-grid {
+        gap: 18px;
+    }
+
+    .stat-card {
+        padding: 24px 14px;
+    }
+
+    .stat-number {
+        font-size: clamp(34px, 3.4vw, 46px);
+    }
+}
+
+/* Laptop layouts. */
+@media (max-width: 1280px) {
+    .sidebar {
+        width: 220px;
+    }
+
+    .main-content {
+        margin-left: 220px;
+        padding: 20px;
+    }
+
+    .logo {
+        padding-inline: 14px;
+    }
+
+    .logo-image {
+        width: 78px;
+    }
+
+    .logo-text {
+        font-size: 14px;
+    }
+
+    .filter-controls-inline {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .data-center-container .filter-controls-inline {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .section-header,
+    .pollers-header {
+        align-items: flex-start;
+    }
+
+    .dashboard-pagination-controls-top,
+    .dashboard-pagination-controls,
+    .pollers-pagination-controls {
+        justify-content: flex-start;
+    }
+}
+
+/* Tablets: compact rail sidebar and scrollable tables. */
+@media (max-width: 992px) {
+    .sidebar {
+        width: 76px;
+    }
+
+    .main-content {
+        margin-left: 76px;
+        padding: 18px;
+    }
+
+    .logo {
+        min-height: 70px;
+        justify-content: center;
+        padding: 12px 8px;
+    }
+
+    .logo-image {
+        width: 52px;
+    }
+
+    .logo-text,
+    .nav-text,
+    .sidebar-footer .refresh-text,
+    .logout-text {
+        display: none;
+    }
+
+    .nav-menu {
+        padding: 14px 8px;
+    }
+
+    .nav-item,
+    .logout-btn-sidebar {
+        justify-content: center;
+        gap: 0;
+        padding-inline: 8px;
+    }
+
+    .nav-icon,
+    .logout-icon {
+        font-size: 20px;
+    }
+
+    .sidebar-footer {
+        padding: 12px 8px;
+    }
+
+    .refresh-info {
+        justify-content: center;
+    }
+
+    .content-header {
+        gap: 16px;
+        align-items: flex-start;
+    }
+
+    .content-header h1 {
+        font-size: clamp(30px, 5vw, 38px);
+    }
+
+    .top-row {
+        flex-direction: column;
+    }
+
+    .filter-section {
+        width: 100%;
+    }
+
+    .services-table {
+        min-width: 940px;
+        table-layout: auto !important;
+    }
+
+    .pollers-table {
+        min-width: 900px;
+    }
+
+    .data-center-table,
+    .data-center-detail-table {
+        min-width: 840px;
+    }
+
+    .services-table th,
+    .services-table td,
+    .pollers-table th,
+    .pollers-table td,
+    .data-center-table th,
+    .data-center-table td,
+    .data-center-detail-table th,
+    .data-center-detail-table td {
+        white-space: normal;
+    }
+
+    .modal-content {
+        max-height: calc(100vh - 32px);
+        overflow-y: auto;
+    }
+}
+
+/* Mobile: sidebar becomes a horizontal navigation strip. */
+@media (max-width: 768px) {
+    body {
+        min-width: 320px;
+    }
+
+    .app-container {
+        display: block;
+        min-height: 100dvh;
+    }
+
+    .sidebar {
+        position: sticky;
+        top: 0;
+        left: auto;
+        bottom: auto;
+        width: 100%;
+        height: auto;
+        transform: none;
+        border-right: 0;
+        border-bottom: 1px solid #30363d;
+        overflow: visible;
+        z-index: 3000;
+    }
+
+    .logo {
+        display: none;
+    }
+
+    .nav-menu {
+        display: flex;
+        align-items: stretch;
+        gap: 6px;
+        padding: 8px;
+        overflow-x: auto;
+        scrollbar-width: thin;
+    }
+
+    .nav-item {
+        flex: 0 0 auto;
+        min-width: 54px;
+        margin: 0;
+        padding: 9px 12px;
+    }
+
+    .nav-icon {
+        font-size: 18px;
+    }
+
+    .sidebar-footer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px 8px;
+        border-top: 0;
+    }
+
+    .refresh-info {
+        display: none;
+    }
+
+    .logout-btn-sidebar {
+        width: auto;
+        margin: 0 0 0 auto;
+        padding: 8px 12px;
+    }
+
+    .main-content {
+        width: 100%;
+        margin-left: 0;
+        padding: 14px;
+    }
+
+    .content-header {
+        flex-direction: column;
+        align-items: stretch;
+        margin-bottom: 20px;
+    }
+
+    .content-header h1 {
+        font-size: clamp(28px, 9vw, 36px);
+        line-height: 1.1;
+    }
+
+    .content-header .refresh-btn,
+    .pollers-header .refresh-btn,
+    .data-center-detail-header .refresh-btn {
+        width: 100%;
+    }
+
+    .filter-section,
+    .filter-section-compact {
+        padding: 14px;
+    }
+
+    .filter-controls-inline,
+    .data-center-container .filter-controls-inline {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .filter-input-group-compact {
+        display: grid;
+        grid-template-columns: 1fr;
+        align-items: stretch;
+        gap: 6px;
+        width: 100%;
+    }
+
+    .filter-input-group-compact label {
+        margin: 0;
+    }
+
+    .filter-input,
+    .filter-select,
+    .filter-input-compact,
+    .filter-select-compact,
+    .search-input,
+    .issue-filter-input,
+    .filter-readonly-compact {
+        min-height: 44px;
+        font-size: 16px;
+    }
+
+    .issue-filter-dropdown,
+    .suggestions-dropdown,
+    .combobox-dropdown {
+        max-height: min(45vh, 300px);
+    }
+
+    .stats-grid,
+    .data-center-container .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    .stat-card,
+    .data-center-container .stat-card {
+        min-height: 118px;
+        padding: 18px 10px;
+        border-left-width: 4px;
+    }
+
+    .stat-number {
+        font-size: clamp(28px, 10vw, 38px);
+        margin-bottom: 8px;
+    }
+
+    .stat-label {
+        font-size: 10px;
+        letter-spacing: 0.6px;
+    }
+
+    .section-header,
+    .pollers-header,
+    .data-center-detail-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding: 14px;
+    }
+
+    .section-header-left,
+    .pollers-header > div,
+    .dashboard-pagination-controls-top,
+    .dashboard-pagination-controls,
+    .pollers-pagination-controls,
+    .pollers-pagination-left,
+    .pollers-pagination-right,
+    .data-center-detail-controls-bottom,
+    .data-center-pagination-controls {
+        width: 100%;
+        align-items: stretch;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .dashboard-pagination-buttons,
+    .pollers-pagination-buttons,
+    .data-center-pagination-buttons {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        width: 100%;
+        gap: 8px;
+    }
+
+    .dashboard-page-btn,
+    .pollers-page-btn,
+    .data-center-page-btn,
+    .dashboard-page-size-select,
+    .pollers-page-size-select,
+    .data-center-page-size-select {
+        width: 100%;
+        min-height: 42px;
+    }
+
+    .dashboard-page-info,
+    .pollers-page-info,
+    .data-center-page-info {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        padding-inline: 4px;
+    }
+
+    .search-bar {
+        flex-direction: column;
+    }
+
+    .services-table {
+        min-width: 880px;
+        font-size: 12px;
+    }
+
+    .pollers-table {
+        min-width: 820px;
+        font-size: 12px;
+    }
+
+    .data-center-table,
+    .data-center-detail-table {
+        min-width: 760px;
+        font-size: 12px;
+    }
+
+    .services-table th,
+    .services-table td,
+    .pollers-table th,
+    .pollers-table td,
+    .data-center-table th,
+    .data-center-table td,
+    .data-center-detail-table th,
+    .data-center-detail-table td {
+        padding: 10px 12px;
+    }
+
+    .table-wrapper::after,
+    .pollers-table-wrapper::after,
+    .data-center-table-wrapper::after {
+        content: 'Swipe horizontally to see more columns';
+        display: block;
+        position: sticky;
+        left: 0;
+        width: max-content;
+        max-width: 100%;
+        padding: 7px 10px;
+        color: #8b949e;
+        background: #0d1117;
+        border-top: 1px solid #21262d;
+        font-size: 11px;
+    }
+
+    .modal-overlay {
+        align-items: flex-end;
+        padding: 10px;
+    }
+
+    .modal-content {
+        max-width: none;
+        max-height: calc(100dvh - 20px);
+        padding: 18px;
+        border-radius: 14px 14px 8px 8px;
+        overflow-y: auto;
+    }
+
+    .modal-actions {
+        flex-direction: column-reverse;
+    }
+
+    .modal-btn {
+        width: 100%;
+        min-height: 44px;
+    }
+}
+
+/* Small phones. */
+@media (max-width: 480px) {
+    .main-content {
+        padding: 10px;
+    }
+
+    .nav-item {
+        min-width: 48px;
+        padding: 8px 10px;
+    }
+
+    .stats-grid,
+    .data-center-container .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .stat-card,
+    .data-center-container .stat-card {
+        min-height: 104px;
+    }
+
+    .content-header h1 {
+        font-size: 28px;
+    }
+
+    .section-title,
+    .pollers-header h2,
+    .data-center-detail-header h2 {
+        font-size: 15px;
+    }
+
+    .service-count {
+        display: inline-flex;
+        width: fit-content;
+    }
+}
+
+/* Touch devices: enlarge actionable controls and remove hover-only movement. */
+@media (hover: none) and (pointer: coarse) {
+    button,
+    .nav-item,
+    .stat-card,
+    .poller-name,
+    .clickable-number,
+    select,
+    input {
+        touch-action: manipulation;
+    }
+
+    .ack-btn,
+    .ack-action-btn,
+    .ack-badge,
+    .ack-success-badge {
+        min-height: 40px;
+        padding-inline: 14px !important;
+    }
+
+    .stat-card:hover,
+    .refresh-btn:hover:not(:disabled),
+    .ack-btn:hover:not(:disabled),
+    .ack-action-btn:hover:not(:disabled),
+    .ack-badge:hover:not(:disabled),
+    .ack-success-badge:hover:not(:disabled) {
+        transform: none;
+    }
+}
+
+/* Respect reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}

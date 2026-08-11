@@ -12,6 +12,9 @@ router.get('/pollers', centreonController.getAllPollers);
 router.get('/pollers/:pollerId/hosts', centreonController.getPollerHosts);
 router.get('/pollers/:pollerId/services/summary', centreonController.getPollerServiceSummary);
 
+// Data Center endpoints
+router.get('/datacenter/hostgroups', centreonController.getDataCenterHostGroups);
+
 // Acknowledgement endpoints
 router.post('/acknowledge', centreonController.acknowledgeService);
 router.post('/unacknowledge', centreonController.unacknowledgeService);
@@ -24,10 +27,9 @@ router.get('/services/search', centreonController.searchServicesGlobally);
 router.get('/services/status/summary', centreonController.getServiceStatusSummary);
 router.get('/services/status/global-summary', centreonController.getGlobalServiceStatusSummary);
 router.get('/services/status/global-summary/list', centreonController.getGlobalServiceStatusSummaryList);
+router.get('/services/status/global-summary/options', centreonController.getGlobalServiceFilterOptions);
+router.get('/services/status/resources-parity', centreonController.getGlobalServiceResourcesParity);
 router.get('/services', centreonController.getAllServices);
 router.get('/services/host/:hostId', centreonController.getServicesByHost);
-
-// Data Center - Host Groups with issue counts
-router.get('/datacenter/hostgroups', centreonController.getDataCenterHostGroups);
 
 module.exports = router;
