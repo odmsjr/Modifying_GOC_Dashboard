@@ -1500,43 +1500,90 @@ const getAllPollers = async (req, res, next) => {
             refreshPollerHostCountCache(req, monitoringServerMap);
         }
 
+        // Get unhandled services from cache
+        let criticalServices = dashboardGlobalSummaryCache.services.critical || [];
+        let warningServices = dashboardGlobalSummaryCache.services.warning || [];
+        let unknownServices = dashboardGlobalSummaryCache.services.unknown || [];
+
+        if (!dashboardGlobalSummaryCache.updatedAt) {
+            refreshDashboardGlobalSummaryCache(req);
+            criticalServices = [];
+            warningServices = [];
+            unknownServices = [];
+        }
+
+        // ✅ DEBUG: Log all services for BTLPoller
+        const btlCritical = criticalServices.filter(s => s.poller_name === 'BTLPoller');
+        console.log(`🔍 BTLPoller critical services count (from cache): ${btlCritical.length}`);
+        console.log('🔍 BTLPoller critical services:', btlCritical.map(s => `${s.host?.name} - ${s.description}`));
+
+        // Build service count map
+        const serviceCounts = {};
+        const addService = (service, statusType) => {
+            const pollerName = service.poller_name || 'Default Poller';
+            if (!serviceCounts[pollerName]) {
+                serviceCounts[pollerName] = { critical: 0, warning: 0, unknown: 0 };
+            }
+            serviceCounts[pollerName][statusType] += 1;
+        };
+
+        criticalServices.forEach(s => addService(s, 'critical'));
+        warningServices.forEach(s => addService(s, 'warning'));
+        unknownServices.forEach(s => addService(s, 'unknown'));
+
+        // ✅ DEBUG: Log all poller names from services
+        const allPollerNames = Object.keys(serviceCounts);
+        console.log('🔍 All poller names found in services:', allPollerNames);
+
         const pollers = Object.values(monitoringServerMap)
             .map((server) => {
                 const pollerId = String(server.id);
                 const cachedCounts = pollerHostCountCache.data[pollerId];
+                const serviceCount = serviceCounts[server.name] || { critical: 0, warning: 0, unknown: 0 };
 
                 return {
                     poller_id: server.id,
                     poller_name: server.name || `Poller ${server.id}`,
-                    address: server.address || "",
-                    server_type: server.server_type || "",
+                    address: server.address || '',
+                    server_type: server.server_type || '',
                     totalHosts: cachedCounts?.totalHosts ?? null,
                     upHosts: cachedCounts?.upHosts ?? null,
                     downHosts: cachedCounts?.downHosts ?? null,
                     unreachableHosts: cachedCounts?.unreachableHosts ?? null,
-                    pendingHosts: cachedCounts?.pendingHosts ?? null
+                    pendingHosts: cachedCounts?.pendingHosts ?? null,
+                    criticalServices: serviceCount.critical,
+                    warningServices: serviceCount.warning,
+                    unknownServices: serviceCount.unknown,
                 };
             })
             .sort((a, b) => {
-                const nameA = String(a.poller_name || "").toLowerCase();
-                const nameB = String(b.poller_name || "").toLowerCase();
+                const nameA = String(a.poller_name || '').toLowerCase();
+                const nameB = String(b.poller_name || '').toLowerCase();
                 return nameA.localeCompare(nameB);
             });
 
         return res.json({
             success: true,
             count: pollers.length,
-            data: {
-                result: pollers
-            },
+            data: { result: pollers },
             meta: {
                 totalPollers: pollers.length,
                 hostCountLoaded: Boolean(hasFreshCache),
                 hostCountRefreshing: pollerHostCountCache.isRefreshing,
-                hostCountUpdatedAt: pollerHostCountCache.updatedAt
-            }
+                hostCountUpdatedAt: pollerHostCountCache.updatedAt,
+                serviceCountsSource: dashboardGlobalSummaryCache.updatedAt ? 'cache' : 'empty',
+                // ✅ DEBUG: Include raw counts for BTLPoller in response
+                debug: {
+                    btlCriticalCount: btlCritical.length,
+                    btlCriticalServices: btlCritical.map(s => ({
+                        host: s.host?.name,
+                        service: s.description,
+                        poller_name: s.poller_name,
+                    })),
+                    allPollerNames,
+                },
+            },
         });
-
     } catch (error) {
         return handleCentreonError(error, res, next);
     }

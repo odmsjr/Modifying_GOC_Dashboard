@@ -1289,27 +1289,28 @@ export default function Dashboard() {
       };
 
       if (usingDashboardGlobalCache) {
-        const hostsRes = await fetch(
-          `${BASE_API_URL}/api/centreon/hosts/status/all`,
-          fetchOptions,
-        );
+          // ✅ Fetch all pollers using the /pollers endpoint
+          const pollersRes = await fetch(
+              `${BASE_API_URL}/api/centreon/pollers`,
+              fetchOptions
+          );
 
-        if (!hostsRes.ok) {
-          throw new Error("Hosts API payload error");
-        }
+          if (!pollersRes.ok) {
+              throw new Error("Pollers API payload error");
+          }
 
-        const hostsPayload = await hostsRes.json();
-        const rawHosts = hostsPayload.data?.result || [];
-        const normalizedHosts = rawHosts.map(normalizeHost);
+          const pollersPayload = await pollersRes.json();
+          const pollers = pollersPayload.data?.result || [];
 
-        const uniquePollers = [
-          ...new Set(normalizedHosts.map((h) => h.poller_name).filter(Boolean)),
-        ];
+          // Extract poller names from the response
+          const uniquePollers = pollers
+              .map((p) => p.poller_name)
+              .filter(Boolean);
 
-        setPollerDropdownList(uniquePollers);
-        setLastUpdated(new Date().toLocaleTimeString());
+          setPollerDropdownList(uniquePollers);
+          setLastUpdated(new Date().toLocaleTimeString());
 
-        return;
+          return;
       }
 
       const hasGlobalSearch = Boolean(
@@ -1446,6 +1447,9 @@ export default function Dashboard() {
         downHosts: poller.downHosts ?? null,
         unreachableHosts: poller.unreachableHosts ?? null,
         pendingHosts: poller.pendingHosts ?? null,
+        criticalServices: poller.criticalServices ?? 0,
+        warningServices: poller.warningServices ?? 0,
+        unknownServices: poller.unknownServices ?? 0,
       }));
 
       setCachedPollers(mappedPollers);
@@ -2919,13 +2923,16 @@ export default function Dashboard() {
                           <th>DOWN</th>
                           <th>UNREACHABLE</th>
                           <th>PENDING</th>
+                          <th>Critical</th>
+                          <th>Warning</th>
+                          <th>Unknown</th>
                         </tr>
                       </thead>
 
                       <tbody>
                         {filteredPollers.length === 0 ? (
                           <tr>
-                            <td colSpan="8" className="loading-cell">
+                            <td colSpan="11" className="loading-cell">
                               No poller found matching search parameters.
                             </td>
                           </tr>
@@ -2941,6 +2948,7 @@ export default function Dashboard() {
 
                                   setCurrentTableType("all");
                                   setPollerHostPage(1);
+                                  setPollerHostLimit(999999);
 
                                   setPollerHosts([]);
                                   setPollerServices([]);
@@ -2956,26 +2964,20 @@ export default function Dashboard() {
                               </td>
 
                               <td className="address">{p.Address || "N/A"}</td>
-                              <td className="server-type">
-                                {p.ServerType || "N/A"}
-                              </td>
+                              <td className="server-type">{p.ServerType || "N/A"}</td>
                               <td className="total-count">{p.Total ?? "-"}</td>
-                              <td
-                                style={{ color: "#3fb950", fontWeight: "bold" }}
-                              >
+                              <td style={{ color: "#3fb950", fontWeight: "bold" }}>
                                 {p.upHosts ?? "-"}
                               </td>
-                              <td className="critical-count">
-                                {p.downHosts ?? "-"}
-                              </td>
-                              <td className="warning-count">
-                                {p.unreachableHosts ?? "-"}
-                              </td>
-                              <td
-                                style={{ color: "#8b949e", fontWeight: "bold" }}
-                              >
+                              <td className="critical-count">{p.downHosts ?? "-"}</td>
+                              <td className="warning-count">{p.unreachableHosts ?? "-"}</td>
+                              <td style={{ color: "#8b949e", fontWeight: "bold" }}>
                                 {p.pendingHosts ?? "-"}
                               </td>
+                              {/* ✅ NEW: service-level counts */}
+                              <td className="critical-count">{p.criticalServices ?? 0}</td>
+                              <td className="warning-count">{p.warningServices ?? 0}</td>
+                              <td className="unknown-count">{p.unknownServices ?? 0}</td>
                             </tr>
                           ))
                         )}
