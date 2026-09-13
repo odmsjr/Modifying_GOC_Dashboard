@@ -681,6 +681,8 @@ export default function Dashboard() {
     // --- POLLERS PAGE STATE ---
     const [cachedPollers, setCachedPollers] = useState([]);
     const [pollerSearch, setPollerSearch] = useState('');
+    const [pollerPage, setPollerPage] = useState(1);
+    const [pollerLimit, setPollerLimit] = useState(20);
     const [selectedPoller, setSelectedPoller] = useState(null);
     const [selectedPollerId, setSelectedPollerId] = useState(null);
 
@@ -1896,6 +1898,20 @@ export default function Dashboard() {
         );
     }, [cachedPollers, pollerSearch]);
 
+    const pollerTotalPages = useMemo(
+        () => Math.max(1, Math.ceil(filteredPollers.length / pollerLimit)),
+        [filteredPollers.length, pollerLimit]
+    );
+
+    const paginatedPollers = useMemo(() => {
+        const start = (pollerPage - 1) * pollerLimit;
+        return filteredPollers.slice(start, start + pollerLimit);
+    }, [filteredPollers, pollerPage, pollerLimit]);
+
+    useEffect(() => {
+        setPollerPage(1);
+    }, [pollerSearch]);
+
     const displayCounts = useMemo(() => {
         if (location.pathname === '/pollers' && selectedPollerId) {
             return pollerServiceCounts;
@@ -2877,21 +2893,43 @@ export default function Dashboard() {
 
                 {location.pathname === '/pollers' && (
                     <div className="page active">
+                        {!selectedPoller && (
+                            <div className="filter-section-compact" style={{ marginBottom: '24px' }}>
+                                <div className="pollers-list-filters">
+                                    <div className="filter-input-group-compact">
+                                        <label>POLLER</label>
+                                        <input
+                                            type="text"
+                                            className="filter-input-compact"
+                                            placeholder="Filter pollers by name or ID..."
+                                            value={pollerSearch}
+                                            onChange={(e) => setPollerSearch(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="filter-input-group-compact">
+                                        <label>STATUS</label>
+                                        <div
+                                            className="filter-readonly-compact"
+                                            role="status"
+                                            aria-label="Current Poller handling state"
+                                        >
+                                            Unhandled Problems
+                                        </div>
+                                    </div>
+                                    <button
+                                        className="refresh-btn"
+                                        onClick={handleGlobalManualRefresh}
+                                    >
+                                        Refresh Pollers
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                         <div className="pollers-container">
                             {!selectedPoller ? (
                                 <>
                                     <div className="pollers-header">
                                         <h2>Poller Assignments</h2>
-
-                                        <div className="search-bar">
-                                            <input
-                                                type="text"
-                                                className="search-input"
-                                                placeholder="Filter pollers by name or ID..."
-                                                value={pollerSearch}
-                                                onChange={(e) => setPollerSearch(e.target.value)}
-                                            />
-                                        </div>
                                     </div>
 
                                     <div className="pollers-table-wrapper">
@@ -2917,7 +2955,7 @@ export default function Dashboard() {
                                                         </td>
                                                     </tr>
                                                 ) : (
-                                                    filteredPollers.map((p, idx) => (
+                                                    paginatedPollers.map((p, idx) => (
                                                         <tr key={p.poller_id || idx}>
                                                             <td
                                                                 className="poller-name"
@@ -2959,8 +2997,42 @@ export default function Dashboard() {
                                         </table>
                                     </div>
 
-                                    <div className="table-count">
-                                        Total Monitored Pollers: {filteredPollers.length}
+                                    <div className="pollers-pagination-footer">
+                                        <span className="pollers-pagination-info">
+                                            Total Monitored Pollers: {filteredPollers.length}
+                                        </span>
+                                        <div className="pollers-pagination-controls">
+                                            <select
+                                                className="pollers-page-size-select"
+                                                value={pollerLimit}
+                                                onChange={(e) => {
+                                                    setPollerLimit(Number(e.target.value));
+                                                    setPollerPage(1);
+                                                }}
+                                            >
+                                                <option value="10">10</option>
+                                                <option value="20">20</option>
+                                                <option value="50">50</option>
+                                                <option value="100">100</option>
+                                            </select>
+                                            <button
+                                                className="pollers-page-btn"
+                                                onClick={() => setPollerPage((p) => Math.max(1, p - 1))}
+                                                disabled={pollerPage <= 1}
+                                            >
+                                                ◀ Prev
+                                            </button>
+                                            <span className="pollers-page-info">
+                                                Page {pollerPage} of {pollerTotalPages}
+                                            </span>
+                                            <button
+                                                className="pollers-page-btn"
+                                                onClick={() => setPollerPage((p) => Math.min(pollerTotalPages, p + 1))}
+                                                disabled={pollerPage >= pollerTotalPages}
+                                            >
+                                                Next ▶
+                                            </button>
+                                        </div>
                                     </div>
                                 </>
                             ) : (

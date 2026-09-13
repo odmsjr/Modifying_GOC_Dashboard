@@ -3055,3 +3055,60 @@ video {
         animation-iteration-count: 1 !important;
     }
 }
+
+
+/* ============================================================
+   POLLERS OVERVIEW — ENHANCED LAYOUT
+   ============================================================ */
+
+.pollers-list-filters {
+    display: grid;
+    grid-template-columns:
+        minmax(260px, 2fr)
+        minmax(210px, 1fr)
+        auto;
+    align-items: center;
+    gap: 16px;
+}
+
+.pollers-list-filters .filter-input-group-compact {
+    min-width: 0;
+}
+
+.pollers-list-filters .refresh-btn {
+    white-space: nowrap;
+}
+
+.pollers-pagination-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+
+    padding: 12px 20px;
+
+    border-top: 1px solid #30363d;
+
+    color: #8b949e;
+    font-size: 12px;
+
+    background-color: #161b22;
+}
+
+.pollers-pagination-info {
+    color: #8b949e;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+    .pollers-list-filters {
+        grid-template-columns: 1fr;
+    }
+
+    .pollers-pagination-footer {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
