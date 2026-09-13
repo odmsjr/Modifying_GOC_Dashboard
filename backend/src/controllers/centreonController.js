@@ -13,7 +13,16 @@ let pollerHostCountCache = {
     isRefreshing: false
 };
 
+
 const POLLER_HOST_COUNT_CACHE_TTL_MS = 5 * 60 * 1000;
+
+let hostGroupsCache = {
+    groups: [],
+    updatedAt: null,
+    isRefreshing: false
+};
+
+const HOST_GROUPS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // --- Unhandled Cache (existing) ---
 let dashboardGlobalSummaryCache = {
@@ -1206,6 +1215,71 @@ const refreshPollerHostCountCache = async (req, monitoringServerMap) => {
     }
 };
 
+
+const refreshHostGroupsCache = async (req) => {
+    if (hostGroupsCache.isRefreshing) return;
+
+    hostGroupsCache.isRefreshing = true;
+
+    try {
+        const allHostGroups = [];
+        const centreonPageLimit = 1000;
+        let centreonPage = 1;
+        let fetchedGroups = 0;
+        let totalGroupsFromCentreon = 0;
+
+        while (true) {
+            const params = new URLSearchParams({
+                page: String(centreonPage),
+                limit: String(centreonPageLimit),
+                show_host: "true"
+            });
+
+            const endpoint = `/monitoring/hostgroups?${params.toString()}`;
+            console.log("Centreon host groups cache URL:", endpoint);
+
+            const response = await centreonAxios.get(endpoint, {
+                headers: getCentreonHeaders(req)
+            });
+
+            const groups = response.data?.result || [];
+            totalGroupsFromCentreon =
+                Number(response.data?.meta?.total) || groups.length;
+
+            allHostGroups.push(...groups);
+            fetchedGroups += groups.length;
+
+            if (
+                fetchedGroups >= totalGroupsFromCentreon ||
+                groups.length === 0
+            ) {
+                break;
+            }
+
+            centreonPage += 1;
+        }
+
+        hostGroupsCache = {
+            groups: allHostGroups,
+            updatedAt: Date.now(),
+            isRefreshing: false
+        };
+
+        console.log("Host groups cache refreshed:", {
+            totalGroups: allHostGroups.length
+        });
+    } catch (error) {
+        console.error("Failed refreshing host groups cache:", {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message
+        });
+
+        hostGroupsCache.isRefreshing = false;
+    }
+};
+
+
 // --- Refresh Unhandled Cache ---
 const refreshDashboardGlobalSummaryCache = async (req) => {
     if (dashboardGlobalSummaryCache.isRefreshing) {
@@ -1487,79 +1561,120 @@ const getHostStatus = async (req, res, next) => {
 // POLLER ENDPOINTS
 // ============================================================
 
+const normalizePollerKey = (value) => {
+    return String(value || "Default Poller")
+        .trim()
+        .toLowerCase();
+};
+
+const getServicePollerKey = (service) => {
+    return normalizePollerKey(
+        service.poller_name ||
+        service.host?.poller_name ||
+        (service.host?.poller_id
+            ? `Poller ${service.host.poller_id}`
+            : "Default Poller")
+    );
+};
+
+const getUnhandledServicesByPoller = () => {
+    const pollerServices = new Map();
+
+    const addServices = (services = []) => {
+        services.forEach((service) => {
+            const pollerKey = getServicePollerKey(service);
+
+            if (!pollerServices.has(pollerKey)) {
+                pollerServices.set(pollerKey, []);
+            }
+
+            pollerServices.get(pollerKey).push(service);
+        });
+    };
+
+    addServices(dashboardGlobalSummaryCache.services.critical);
+    addServices(dashboardGlobalSummaryCache.services.warning);
+    addServices(dashboardGlobalSummaryCache.services.unknown);
+
+    return pollerServices;
+};
+
 const getAllPollers = async (req, res, next) => {
     try {
         const monitoringServerMap = await getMonitoringServerMap(req);
         const now = Date.now();
 
-        const hasFreshCache =
+        const hostCacheFresh = Boolean(
             pollerHostCountCache.updatedAt &&
-            now - pollerHostCountCache.updatedAt < POLLER_HOST_COUNT_CACHE_TTL_MS;
+            now - pollerHostCountCache.updatedAt <
+                POLLER_HOST_COUNT_CACHE_TTL_MS
+        );
 
-        if (!hasFreshCache && !pollerHostCountCache.isRefreshing) {
+        if (!hostCacheFresh && !pollerHostCountCache.isRefreshing) {
             refreshPollerHostCountCache(req, monitoringServerMap);
         }
 
-        // Get unhandled services from cache
-        let criticalServices = dashboardGlobalSummaryCache.services.critical || [];
-        let warningServices = dashboardGlobalSummaryCache.services.warning || [];
-        let unknownServices = dashboardGlobalSummaryCache.services.unknown || [];
+        const serviceCacheFresh = Boolean(
+            dashboardGlobalSummaryCache.updatedAt &&
+            now - dashboardGlobalSummaryCache.updatedAt <
+                DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
+        );
 
-        if (!dashboardGlobalSummaryCache.updatedAt) {
-            refreshDashboardGlobalSummaryCache(req);
-            criticalServices = [];
-            warningServices = [];
-            unknownServices = [];
+        if (!serviceCacheFresh && !dashboardGlobalSummaryCache.isRefreshing) {
+            if (!dashboardGlobalSummaryCache.updatedAt) {
+                await refreshDashboardGlobalSummaryCache(req);
+            } else {
+                refreshDashboardGlobalSummaryCache(req);
+            }
         }
 
-        // ✅ DEBUG: Log all services for BTLPoller
-        const btlCritical = criticalServices.filter(s => s.poller_name === 'BTLPoller');
-        console.log(`🔍 BTLPoller critical services count (from cache): ${btlCritical.length}`);
-        console.log('🔍 BTLPoller critical services:', btlCritical.map(s => `${s.host?.name} - ${s.description}`));
-
-        // Build service count map
-        const serviceCounts = {};
-        const addService = (service, statusType) => {
-            const pollerName = service.poller_name || 'Default Poller';
-            if (!serviceCounts[pollerName]) {
-                serviceCounts[pollerName] = { critical: 0, warning: 0, unknown: 0 };
-            }
-            serviceCounts[pollerName][statusType] += 1;
-        };
-
-        criticalServices.forEach(s => addService(s, 'critical'));
-        warningServices.forEach(s => addService(s, 'warning'));
-        unknownServices.forEach(s => addService(s, 'unknown'));
-
-        // ✅ DEBUG: Log all poller names from services
-        const allPollerNames = Object.keys(serviceCounts);
-        console.log('🔍 All poller names found in services:', allPollerNames);
+        const serviceCountsLoaded = Boolean(
+            dashboardGlobalSummaryCache.updatedAt
+        );
+        const servicesByPoller = serviceCountsLoaded
+            ? getUnhandledServicesByPoller()
+            : new Map();
 
         const pollers = Object.values(monitoringServerMap)
             .map((server) => {
                 const pollerId = String(server.id);
-                const cachedCounts = pollerHostCountCache.data[pollerId];
-                const serviceCount = serviceCounts[server.name] || { critical: 0, warning: 0, unknown: 0 };
+                const hostCounts = pollerHostCountCache.data[pollerId];
+                const pollerKey = normalizePollerKey(server.name);
+                const pollerServices =
+                    servicesByPoller.get(pollerKey) || [];
+                const issueCounts = serviceCountsLoaded
+                    ? buildStatusCounts(pollerServices)
+                    : {
+                        allActiveIssues: null,
+                        critical: null,
+                        warning: null,
+                        unknown: null
+                    };
 
                 return {
                     poller_id: server.id,
-                    poller_name: server.name || `Poller ${server.id}`,
-                    address: server.address || '',
-                    server_type: server.server_type || '',
-                    totalHosts: cachedCounts?.totalHosts ?? null,
-                    upHosts: cachedCounts?.upHosts ?? null,
-                    downHosts: cachedCounts?.downHosts ?? null,
-                    unreachableHosts: cachedCounts?.unreachableHosts ?? null,
-                    pendingHosts: cachedCounts?.pendingHosts ?? null,
-                    criticalServices: serviceCount.critical,
-                    warningServices: serviceCount.warning,
-                    unknownServices: serviceCount.unknown,
+                    poller_name:
+                        server.name || `Poller ${server.id}`,
+                    address: server.address || "",
+                    server_type: server.server_type || "",
+                    totalHosts: hostCounts?.totalHosts ?? null,
+                    upHosts: hostCounts?.upHosts ?? null,
+                    downHosts: hostCounts?.downHosts ?? null,
+                    unreachableHosts:
+                        hostCounts?.unreachableHosts ?? null,
+                    pendingHosts: hostCounts?.pendingHosts ?? null,
+                    allActiveIssues: issueCounts.allActiveIssues,
+                    criticalServices: issueCounts.critical,
+                    warningServices: issueCounts.warning,
+                    unknownServices: issueCounts.unknown
                 };
             })
             .sort((a, b) => {
-                const nameA = String(a.poller_name || '').toLowerCase();
-                const nameB = String(b.poller_name || '').toLowerCase();
-                return nameA.localeCompare(nameB);
+                return String(a.poller_name || "").localeCompare(
+                    String(b.poller_name || ""),
+                    undefined,
+                    { sensitivity: "base" }
+                );
             });
 
         return res.json({
@@ -1568,21 +1683,25 @@ const getAllPollers = async (req, res, next) => {
             data: { result: pollers },
             meta: {
                 totalPollers: pollers.length,
-                hostCountLoaded: Boolean(hasFreshCache),
-                hostCountRefreshing: pollerHostCountCache.isRefreshing,
-                hostCountUpdatedAt: pollerHostCountCache.updatedAt,
-                serviceCountsSource: dashboardGlobalSummaryCache.updatedAt ? 'cache' : 'empty',
-                // ✅ DEBUG: Include raw counts for BTLPoller in response
-                debug: {
-                    btlCriticalCount: btlCritical.length,
-                    btlCriticalServices: btlCritical.map(s => ({
-                        host: s.host?.name,
-                        service: s.description,
-                        poller_name: s.poller_name,
-                    })),
-                    allPollerNames,
-                },
-            },
+                hostCountLoaded: Boolean(
+                    pollerHostCountCache.updatedAt
+                ),
+                hostCountFresh: hostCacheFresh,
+                hostCountRefreshing:
+                    pollerHostCountCache.isRefreshing,
+                hostCountUpdatedAt:
+                    pollerHostCountCache.updatedAt,
+                serviceCountsLoaded,
+                serviceCountsFresh: serviceCacheFresh,
+                serviceCountsRefreshing:
+                    dashboardGlobalSummaryCache.isRefreshing,
+                serviceCountsUpdatedAt:
+                    dashboardGlobalSummaryCache.updatedAt,
+                serviceCountsSource: serviceCountsLoaded
+                    ? dashboardGlobalSummaryCache.source ||
+                        "centreon-monitoring-resources"
+                    : "loading"
+            }
         });
     } catch (error) {
         return handleCentreonError(error, res, next);
@@ -1668,49 +1787,268 @@ const getPollerHosts = async (req, res, next) => {
 const getPollerServiceSummary = async (req, res, next) => {
     try {
         const { pollerId } = req.params;
-        const page = Number(req.query.page) || 1;
-        const limit = Number(req.query.limit) || 100;
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const limit = Math.min(
+            1000,
+            Math.max(1, Number(req.query.limit) || 100)
+        );
+        const requestedType = String(req.query.type || "all")
+            .trim()
+            .toLowerCase();
+        const allowedTypes = new Set([
+            "all",
+            "critical",
+            "warning",
+            "unknown"
+        ]);
+        const type = allowedTypes.has(requestedType)
+            ? requestedType
+            : "all";
+        const hostSearch = String(req.query.host || "")
+            .trim()
+            .toLowerCase();
+        const serviceSearch = String(req.query.service || "")
+            .trim()
+            .toLowerCase();
 
         const monitoringServerMap = await getMonitoringServerMap(req);
         const mappedServer = monitoringServerMap[String(pollerId)];
+        const pollerName =
+            mappedServer?.name || `Poller ${pollerId}`;
+        const pollerKey = normalizePollerKey(pollerName);
+        const now = Date.now();
+        const serviceCacheFresh = Boolean(
+            dashboardGlobalSummaryCache.updatedAt &&
+            now - dashboardGlobalSummaryCache.updatedAt <
+                DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
+        );
+
+        if (!serviceCacheFresh && !dashboardGlobalSummaryCache.isRefreshing) {
+            if (!dashboardGlobalSummaryCache.updatedAt) {
+                await refreshDashboardGlobalSummaryCache(req);
+            } else {
+                refreshDashboardGlobalSummaryCache(req);
+            }
+        }
+
+        if (!dashboardGlobalSummaryCache.updatedAt) {
+            return res.json({
+                success: true,
+                cached: false,
+                refreshing:
+                    dashboardGlobalSummaryCache.isRefreshing,
+                poller_id: pollerId,
+                poller_name: pollerName,
+                poller_address: mappedServer?.address || "",
+                poller_server_type:
+                    mappedServer?.server_type || "",
+                mode: "cached-resources",
+                statusFilter: "unhandled",
+                type,
+                query: {
+                    host: hostSearch,
+                    service: serviceSearch
+                },
+                counts: {
+                    allServices: null,
+                    allActiveIssues: null,
+                    critical: null,
+                    warning: null,
+                    unknown: null
+                },
+                filteredCounts: {
+                    allActiveIssues: 0,
+                    critical: 0,
+                    warning: 0,
+                    unknown: 0
+                },
+                options: { hosts: [], services: [] },
+                services: {
+                    critical: [],
+                    warning: [],
+                    unknown: []
+                },
+                data: { result: [] },
+                meta: {
+                    page,
+                    limit,
+                    total: 0,
+                    totalPages: 1,
+                    filteredTotal: 0,
+                    cacheLoaded: false,
+                    cacheFresh: false,
+                    cacheRefreshing:
+                        dashboardGlobalSummaryCache.isRefreshing,
+                    cacheUpdatedAt:
+                        dashboardGlobalSummaryCache.updatedAt,
+                    cacheTtlMs:
+                        DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
+                }
+            });
+        }
+
+        const servicesByPoller = getUnhandledServicesByPoller();
+        const allPollerServices =
+            servicesByPoller.get(pollerKey) || [];
+        const pollerCounts = buildStatusCounts(allPollerServices);
+
+        const matchesHost = (service) => {
+            if (!hostSearch) return true;
+
+            return [
+                service.host?.name,
+                service.host?.display_name,
+                service.host?.alias
+            ].some((value) =>
+                String(value || "")
+                    .toLowerCase()
+                    .includes(hostSearch)
+            );
+        };
+
+        const matchesService = (service) => {
+            if (!serviceSearch) return true;
+
+            return [
+                service.description,
+                service.display_name,
+                service.service_name,
+                service.output
+            ].some((value) =>
+                String(value || "")
+                    .toLowerCase()
+                    .includes(serviceSearch)
+            );
+        };
+
+        const searchedServices = allPollerServices.filter(
+            (service) =>
+                matchesHost(service) && matchesService(service)
+        );
+        const filteredCounts = buildStatusCounts(searchedServices);
+
+        let selectedServices = searchedServices;
+
+        if (type === "critical") {
+            selectedServices = searchedServices.filter(
+                (service) => Number(service.statusCode) === 2
+            );
+        } else if (type === "warning") {
+            selectedServices = searchedServices.filter(
+                (service) => Number(service.statusCode) === 1
+            );
+        } else if (type === "unknown") {
+            selectedServices = searchedServices.filter(
+                (service) => Number(service.statusCode) === 3
+            );
+        }
+
+        const hostOptions = [
+            ...new Set(
+                allPollerServices
+                    .filter(matchesService)
+                    .map((service) =>
+                        String(
+                            service.host?.name ||
+                            service.host?.display_name ||
+                            service.host?.alias ||
+                            ""
+                        ).trim()
+                    )
+                    .filter(Boolean)
+            )
+        ].sort((a, b) => a.localeCompare(b));
+
+        const serviceOptions = [
+            ...new Set(
+                allPollerServices
+                    .filter(matchesHost)
+                    .map((service) =>
+                        String(
+                            service.description ||
+                            service.display_name ||
+                            service.service_name ||
+                            ""
+                        ).trim()
+                    )
+                    .filter(Boolean)
+            )
+        ].sort((a, b) => a.localeCompare(b));
+
+        const startIndex = (page - 1) * limit;
+        const pagedServices = selectedServices.slice(
+            startIndex,
+            startIndex + limit
+        );
 
         return res.json({
             success: true,
+            cached: true,
+            refreshing:
+                dashboardGlobalSummaryCache.isRefreshing,
+            source:
+                dashboardGlobalSummaryCache.source ||
+                "centreon-monitoring-resources",
             poller_id: pollerId,
-            poller_name: mappedServer?.name || `Poller ${pollerId}`,
+            poller_name: pollerName,
             poller_address: mappedServer?.address || "",
-            poller_server_type: mappedServer?.server_type || "",
-            mode: "fast-no-scan",
+            poller_server_type:
+                mappedServer?.server_type || "",
+            mode: "cached-resources",
+            statusFilter: "unhandled",
+            type,
+            query: {
+                host: hostSearch,
+                service: serviceSearch
+            },
             counts: {
-                allServices: null,
-                critical: null,
-                warning: null,
-                unknown: null
+                ...pollerCounts,
+                allServices: pollerCounts.allActiveIssues
+            },
+            filteredCounts,
+            options: {
+                hosts: hostOptions,
+                services: serviceOptions
             },
             services: {
-                critical: [],
-                warning: [],
-                unknown: []
+                critical: searchedServices.filter(
+                    (service) => Number(service.statusCode) === 2
+                ),
+                warning: searchedServices.filter(
+                    (service) => Number(service.statusCode) === 1
+                ),
+                unknown: searchedServices.filter(
+                    (service) => Number(service.statusCode) === 3
+                )
             },
-            data: {
-                result: []
-            },
+            data: { result: pagedServices },
             meta: {
                 page,
                 limit,
-                total: 0,
-                totalPages: 1
+                total: selectedServices.length,
+                totalPages: Math.max(
+                    1,
+                    Math.ceil(selectedServices.length / limit)
+                ),
+                filteredTotal: searchedServices.length,
+                totalPollerIssues:
+                    pollerCounts.allActiveIssues,
+                hostOptionCount: hostOptions.length,
+                serviceOptionCount: serviceOptions.length,
+                cacheLoaded: true,
+                cacheFresh: serviceCacheFresh,
+                cacheRefreshing:
+                    dashboardGlobalSummaryCache.isRefreshing,
+                cacheUpdatedAt:
+                    dashboardGlobalSummaryCache.updatedAt,
+                cacheTtlMs:
+                    DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
             }
         });
-
     } catch (error) {
         return handleCentreonError(error, res, next);
     }
 };
-
-// ============================================================
-// SERVICE ENDPOINTS
-// ============================================================
 
 const getAllServices = async (req, res, next) => {
     try {
@@ -2805,43 +3143,50 @@ const getDataCenterHostGroups = async (req, res, next) => {
                 hostCounts.unknown;
         });
 
-        const centreonPageLimit = 1000;
-        let centreonPage = 1;
-        let fetchedGroups = 0;
-        let totalGroupsFromCentreon = 0;
-        const allHostGroups = [];
+        const nowHostGroups = Date.now();
+        const hostGroupsFresh = Boolean(
+            hostGroupsCache.updatedAt &&
+            nowHostGroups - hostGroupsCache.updatedAt < HOST_GROUPS_CACHE_TTL_MS
+        );
 
-        while (true) {
-            const params = new URLSearchParams({
-                page: String(centreonPage),
-                limit: String(centreonPageLimit),
-                show_host: "true"
-            });
-
-            const endpoint = `/monitoring/hostgroups?${params.toString()}`;
-            console.log("Centreon Data Center host groups URL:", endpoint);
-
-            const response = await centreonAxios.get(endpoint, {
-                headers: getCentreonHeaders(req)
-            });
-
-            const groups = response.data?.result || [];
-            totalGroupsFromCentreon =
-                Number(response.data?.meta?.total) ||
-                groups.length;
-
-            allHostGroups.push(...groups);
-            fetchedGroups += groups.length;
-
-            if (
-                fetchedGroups >= totalGroupsFromCentreon ||
-                groups.length === 0
-            ) {
-                break;
-            }
-
-            centreonPage += 1;
+        if (!hostGroupsFresh && !hostGroupsCache.isRefreshing) {
+            refreshHostGroupsCache(req);
         }
+
+        if (!hostGroupsCache.updatedAt) {
+            // Cold start – cache is empty, tell frontend to retry.
+            return res.json({
+                success: true,
+                cached: false,
+                refreshing: hostGroupsCache.isRefreshing,
+                statusFilter,
+                query: { search, includeHosts },
+                counts: {
+                    hostGroups: 0,
+                    uniqueHosts: 0,
+                    hostsWithIssues: 0,
+                    allActiveIssues: 0,
+                    critical: 0,
+                    warning: 0,
+                    unknown: 0
+                },
+                data: { result: [] },
+                meta: {
+                    page,
+                    limit,
+                    total: 0,
+                    totalPages: 1,
+                    cacheLoaded: false,
+                    cacheFresh: false,
+                    cacheRefreshing: hostGroupsCache.isRefreshing,
+                    cacheUpdatedAt: hostGroupsCache.updatedAt,
+                    cacheTtlMs: HOST_GROUPS_CACHE_TTL_MS
+                }
+            });
+        }
+
+        const allHostGroups = hostGroupsCache.groups || [];
+        const totalGroupsFromCentreon = allHostGroups.length;
 
         const zeroCounts = () => ({
             allActiveIssues: 0,
@@ -3000,7 +3345,12 @@ const getDataCenterHostGroups = async (req, res, next) => {
                 cacheUpdatedAt: cacheToUse.updatedAt,
                 cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS,
                 totalActiveServicesCached: allServices.length,
-                totalServicesInSelectedView: selectedServices.length
+                totalServicesInSelectedView: selectedServices.length,
+                hostGroupsCached: Boolean(hostGroupsCache.updatedAt),
+                hostGroupsFresh,
+                hostGroupsRefreshing: hostGroupsCache.isRefreshing,
+                hostGroupsUpdatedAt: hostGroupsCache.updatedAt,
+                hostGroupsTtlMs: HOST_GROUPS_CACHE_TTL_MS
             }
         });
     } catch (error) {
