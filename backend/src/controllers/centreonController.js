@@ -3,6 +3,83 @@ const centreonAxios = require("../config/axiosCentreon");
 const db = require("../config/db");
 
 // ============================================================
+// PER-TOKEN CACHE STORE
+// ============================================================
+// Every Centreon token (user/department) gets its own isolated
+// set of caches. This prevents one user's cached view from
+// leaking to another user.
+
+const CACHES_BY_TOKEN = new Map();
+const CACHE_ENTRY_MAX_AGE_MS = 30 * 60 * 1000; // drop inactive tokens after 30 min
+
+const getTokenKey = (req) => {
+    const authHeader = req.headers.authorization;
+    const tokenFromFrontend = authHeader?.startsWith("Bearer ")
+        ? authHeader.replace("Bearer ", "")
+        : authHeader;
+    return tokenFromFrontend || process.env.CENTREON_API_TOKEN || "__default__";
+};
+
+const createEmptyCaches = () => ({
+    pollerHostCountCache: {
+        data: {},
+        hostsByPoller: {},
+        updatedAt: null,
+        isRefreshing: false
+    },
+    hostGroupsCache: {
+        groups: [],
+        updatedAt: null,
+        isRefreshing: false
+    },
+    dashboardGlobalSummaryCache: {
+        counts: {
+            allActiveIssues: null,
+            critical: null,
+            warning: null,
+            unknown: null
+        },
+        services: { critical: [], warning: [], unknown: [] },
+        updatedAt: null,
+        isRefreshing: false,
+        lastError: null
+    },
+    allActiveServicesCache: {
+        counts: {
+            allActiveIssues: null,
+            critical: null,
+            warning: null,
+            unknown: null
+        },
+        services: { critical: [], warning: [], unknown: [] },
+        updatedAt: null,
+        isRefreshing: false,
+        lastError: null
+    },
+    lastUsedAt: Date.now()
+});
+
+const getCachesForRequest = (req) => {
+    const key = getTokenKey(req);
+    const now = Date.now();
+
+    // Prune inactive tokens so memory doesn't grow forever.
+    for (const [k, v] of CACHES_BY_TOKEN.entries()) {
+        if (now - (v.lastUsedAt || 0) > CACHE_ENTRY_MAX_AGE_MS) {
+            CACHES_BY_TOKEN.delete(k);
+        }
+    }
+
+    if (!CACHES_BY_TOKEN.has(key)) {
+        CACHES_BY_TOKEN.set(key, createEmptyCaches());
+    }
+
+    const entry = CACHES_BY_TOKEN.get(key);
+    entry.lastUsedAt = now;
+    return entry;
+};
+
+// ============================================================
 // IN-MEMORY CACHE
 // ============================================================
 
@@ -23,42 +100,6 @@ let hostGroupsCache = {
 };
 
 const HOST_GROUPS_CACHE_TTL_MS = 5 * 60 * 1000;
-
-// --- Unhandled Cache (existing) ---
-let dashboardGlobalSummaryCache = {
-    counts: {
-        allActiveIssues: null,
-        critical: null,
-        warning: null,
-        unknown: null
-    },
-    services: {
-        critical: [],
-        warning: [],
-        unknown: []
-    },
-    updatedAt: null,
-    isRefreshing: false,
-    lastError: null
-};
-
-// --- All Active Services Cache (new) ---
-let allActiveServicesCache = {
-    counts: {
-        allActiveIssues: null,
-        critical: null,
-        warning: null,
-        unknown: null
-    },
-    services: {
-        critical: [],
-        warning: [],
-        unknown: []
-    },
-    updatedAt: null,
-    isRefreshing: false,
-    lastError: null
-};
 
 const DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -240,11 +281,11 @@ const isAcknowledgedActiveService = (service) => {
     );
 };
 
-const getDashboardCachedActiveServices = () => {
+const getDashboardCachedActiveServices = (caches) => {
     return [
-        ...(dashboardGlobalSummaryCache.services.critical || []),
-        ...(dashboardGlobalSummaryCache.services.warning || []),
-        ...(dashboardGlobalSummaryCache.services.unknown || [])
+        ...(caches.dashboardGlobalSummaryCache.services.critical || []),
+        ...(caches.dashboardGlobalSummaryCache.services.warning || []),
+        ...(caches.dashboardGlobalSummaryCache.services.unknown || [])
     ];
 };
 
@@ -736,24 +777,25 @@ const writeAuditLog = async ({
 // ACK / UNACK CACHE HELPERS
 // ============================================================
 
-const recalculateDashboardGlobalCounts = () => {
-    const unhandledServices = getDashboardCachedActiveServices();
+const recalculateDashboardGlobalCounts = (caches) => {
+    const unhandledServices = getDashboardCachedActiveServices(caches);
     const updatedCounts = buildStatusCounts(unhandledServices);
 
-    dashboardGlobalSummaryCache = {
-        ...dashboardGlobalSummaryCache,
+    caches.dashboardGlobalSummaryCache = {
+        ...caches.dashboardGlobalSummaryCache,
         counts: updatedCounts
     };
 
     return updatedCounts;
 };
 
-const markDashboardCachedServiceAsAcknowledged = ({
+const markDashboardCachedServiceAsAcknowledged = (req, {
     hostId,
     serviceId,
     hostName,
     serviceDescription
 }) => {
+    const caches = getCachesForRequest(req);
     let removedCount = 0;
     const targetHostName = String(hostName || "").trim().toLowerCase();
     const targetServiceDescription = String(
@@ -804,22 +846,22 @@ const markDashboardCachedServiceAsAcknowledged = ({
         return !matches;
     });
 
-    dashboardGlobalSummaryCache = {
-        ...dashboardGlobalSummaryCache,
+    caches.dashboardGlobalSummaryCache = {
+        ...caches.dashboardGlobalSummaryCache,
         services: {
             critical: removeTarget(
-                dashboardGlobalSummaryCache.services.critical
+                caches.dashboardGlobalSummaryCache.services.critical
             ),
             warning: removeTarget(
-                dashboardGlobalSummaryCache.services.warning
+                caches.dashboardGlobalSummaryCache.services.warning
             ),
             unknown: removeTarget(
-                dashboardGlobalSummaryCache.services.unknown
+                caches.dashboardGlobalSummaryCache.services.unknown
             )
         }
     };
 
-    const updatedCounts = recalculateDashboardGlobalCounts();
+    const updatedCounts = recalculateDashboardGlobalCounts(caches);
     console.log("Dashboard ACK unhandled-cache removal:", {
         removedCount,
         hostId,
@@ -831,12 +873,13 @@ const markDashboardCachedServiceAsAcknowledged = ({
     return removedCount;
 };
 
-const markDashboardCachedServiceAsUnacknowledged = ({
+const markDashboardCachedServiceAsUnacknowledged = (req, {
     hostId,
     serviceId,
     hostName,
     serviceDescription
 }) => {
+    const caches = getCachesForRequest(req);
     let patchedCount = 0;
 
     const targetHostName = String(
@@ -910,25 +953,25 @@ const markDashboardCachedServiceAsUnacknowledged = ({
         };
     };
 
-    dashboardGlobalSummaryCache = {
-        ...dashboardGlobalSummaryCache,
+    caches.dashboardGlobalSummaryCache = {
+        ...caches.dashboardGlobalSummaryCache,
         services: {
             critical: (
-                dashboardGlobalSummaryCache.services.critical || []
+                caches.dashboardGlobalSummaryCache.services.critical || []
             ).map(patchService),
 
             warning: (
-                dashboardGlobalSummaryCache.services.warning || []
+                caches.dashboardGlobalSummaryCache.services.warning || []
             ).map(patchService),
 
             unknown: (
-                dashboardGlobalSummaryCache.services.unknown || []
+                caches.dashboardGlobalSummaryCache.services.unknown || []
             ).map(patchService)
         }
     };
 
     const updatedCounts =
-        recalculateDashboardGlobalCounts();
+        recalculateDashboardGlobalCounts(caches);
 
     console.log("Dashboard UNACK cache patch result:", {
         patchedCount,
@@ -1105,9 +1148,11 @@ const getMonitoringServerMap = async (req) => {
 };
 
 const refreshPollerHostCountCache = async (req, monitoringServerMap) => {
-    if (pollerHostCountCache.isRefreshing) return;
+    const caches = getCachesForRequest(req);
 
-    pollerHostCountCache.isRefreshing = true;
+    if (caches.pollerHostCountCache.isRefreshing) return;
+
+    caches.pollerHostCountCache.isRefreshing = true;
 
     try {
         const countMap = {};
@@ -1192,7 +1237,7 @@ const refreshPollerHostCountCache = async (req, monitoringServerMap) => {
             page += 1;
         }
 
-        pollerHostCountCache = {
+        caches.pollerHostCountCache = {
             data: countMap,
             hostsByPoller,
             updatedAt: Date.now(),
@@ -1211,15 +1256,17 @@ const refreshPollerHostCountCache = async (req, monitoringServerMap) => {
             message: error.message
         });
 
-        pollerHostCountCache.isRefreshing = false;
+        caches.pollerHostCountCache.isRefreshing = false;
     }
 };
 
 
 const refreshHostGroupsCache = async (req) => {
-    if (hostGroupsCache.isRefreshing) return;
+    const caches = getCachesForRequest(req);
 
-    hostGroupsCache.isRefreshing = true;
+    if (caches.hostGroupsCache.isRefreshing) return;
+
+    caches.hostGroupsCache.isRefreshing = true;
 
     try {
         const allHostGroups = [];
@@ -1259,7 +1306,7 @@ const refreshHostGroupsCache = async (req) => {
             centreonPage += 1;
         }
 
-        hostGroupsCache = {
+        caches.hostGroupsCache = {
             groups: allHostGroups,
             updatedAt: Date.now(),
             isRefreshing: false
@@ -1275,19 +1322,21 @@ const refreshHostGroupsCache = async (req) => {
             message: error.message
         });
 
-        hostGroupsCache.isRefreshing = false;
+        caches.hostGroupsCache.isRefreshing = false;
     }
 };
 
 
 // --- Refresh Unhandled Cache ---
 const refreshDashboardGlobalSummaryCache = async (req) => {
-    if (dashboardGlobalSummaryCache.isRefreshing) {
+    const caches = getCachesForRequest(req);
+
+    if (caches.dashboardGlobalSummaryCache.isRefreshing) {
         return;
     }
 
-    dashboardGlobalSummaryCache = {
-        ...dashboardGlobalSummaryCache,
+    caches.dashboardGlobalSummaryCache = {
+        ...caches.dashboardGlobalSummaryCache,
         isRefreshing: true
     };
 
@@ -1353,7 +1402,7 @@ const refreshDashboardGlobalSummaryCache = async (req) => {
             }
         );
 
-        dashboardGlobalSummaryCache = {
+        caches.dashboardGlobalSummaryCache = {
             counts,
             services: {
                 critical: criticalServices,
@@ -1382,8 +1431,8 @@ const refreshDashboardGlobalSummaryCache = async (req) => {
             debug: error.debug
         });
 
-        dashboardGlobalSummaryCache = {
-            ...dashboardGlobalSummaryCache,
+        caches.dashboardGlobalSummaryCache = {
+            ...caches.dashboardGlobalSummaryCache,
             isRefreshing: false,
             lastError: {
                 status: error.response?.status,
@@ -1397,12 +1446,14 @@ const refreshDashboardGlobalSummaryCache = async (req) => {
 
 // --- Refresh All Active Services Cache ---
 const refreshAllActiveServicesCache = async (req) => {
-    if (allActiveServicesCache.isRefreshing) {
+    const caches = getCachesForRequest(req);
+
+    if (caches.allActiveServicesCache.isRefreshing) {
         return;
     }
 
-    allActiveServicesCache = {
-        ...allActiveServicesCache,
+    caches.allActiveServicesCache = {
+        ...caches.allActiveServicesCache,
         isRefreshing: true
     };
 
@@ -1428,7 +1479,7 @@ const refreshAllActiveServicesCache = async (req) => {
         counts.allActiveIssues =
             counts.critical + counts.warning + counts.unknown;
 
-        allActiveServicesCache = {
+        caches.allActiveServicesCache = {
             counts,
             services: {
                 critical: criticalServices,
@@ -1467,8 +1518,8 @@ const refreshAllActiveServicesCache = async (req) => {
             debug: error.debug
         });
 
-        allActiveServicesCache = {
-            ...allActiveServicesCache,
+        caches.allActiveServicesCache = {
+            ...caches.allActiveServicesCache,
             isRefreshing: false,
             lastError: {
                 status: error.response?.status,
@@ -1577,7 +1628,7 @@ const getServicePollerKey = (service) => {
     );
 };
 
-const getUnhandledServicesByPoller = () => {
+const getUnhandledServicesByPoller = (caches) => {
     const pollerServices = new Map();
 
     const addServices = (services = []) => {
@@ -1592,36 +1643,37 @@ const getUnhandledServicesByPoller = () => {
         });
     };
 
-    addServices(dashboardGlobalSummaryCache.services.critical);
-    addServices(dashboardGlobalSummaryCache.services.warning);
-    addServices(dashboardGlobalSummaryCache.services.unknown);
+    addServices(caches.dashboardGlobalSummaryCache.services.critical);
+    addServices(caches.dashboardGlobalSummaryCache.services.warning);
+    addServices(caches.dashboardGlobalSummaryCache.services.unknown);
 
     return pollerServices;
 };
 
 const getAllPollers = async (req, res, next) => {
     try {
+        const caches = getCachesForRequest(req);
         const monitoringServerMap = await getMonitoringServerMap(req);
         const now = Date.now();
 
         const hostCacheFresh = Boolean(
-            pollerHostCountCache.updatedAt &&
-            now - pollerHostCountCache.updatedAt <
+            caches.pollerHostCountCache.updatedAt &&
+            now - caches.pollerHostCountCache.updatedAt <
                 POLLER_HOST_COUNT_CACHE_TTL_MS
         );
 
-        if (!hostCacheFresh && !pollerHostCountCache.isRefreshing) {
+        if (!hostCacheFresh && !caches.pollerHostCountCache.isRefreshing) {
             refreshPollerHostCountCache(req, monitoringServerMap);
         }
 
         const serviceCacheFresh = Boolean(
-            dashboardGlobalSummaryCache.updatedAt &&
-            now - dashboardGlobalSummaryCache.updatedAt <
+            caches.dashboardGlobalSummaryCache.updatedAt &&
+            now - caches.dashboardGlobalSummaryCache.updatedAt <
                 DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
         );
 
-        if (!serviceCacheFresh && !dashboardGlobalSummaryCache.isRefreshing) {
-            if (!dashboardGlobalSummaryCache.updatedAt) {
+        if (!serviceCacheFresh && !caches.dashboardGlobalSummaryCache.isRefreshing) {
+            if (!caches.dashboardGlobalSummaryCache.updatedAt) {
                 await refreshDashboardGlobalSummaryCache(req);
             } else {
                 refreshDashboardGlobalSummaryCache(req);
@@ -1629,16 +1681,16 @@ const getAllPollers = async (req, res, next) => {
         }
 
         const serviceCountsLoaded = Boolean(
-            dashboardGlobalSummaryCache.updatedAt
+            caches.dashboardGlobalSummaryCache.updatedAt
         );
         const servicesByPoller = serviceCountsLoaded
-            ? getUnhandledServicesByPoller()
+            ? getUnhandledServicesByPoller(caches)
             : new Map();
 
         const pollers = Object.values(monitoringServerMap)
             .map((server) => {
                 const pollerId = String(server.id);
-                const hostCounts = pollerHostCountCache.data[pollerId];
+                const hostCounts = caches.pollerHostCountCache.data[pollerId];
                 const pollerKey = normalizePollerKey(server.name);
                 const pollerServices =
                     servicesByPoller.get(pollerKey) || [];
@@ -1684,21 +1736,21 @@ const getAllPollers = async (req, res, next) => {
             meta: {
                 totalPollers: pollers.length,
                 hostCountLoaded: Boolean(
-                    pollerHostCountCache.updatedAt
+                    caches.pollerHostCountCache.updatedAt
                 ),
                 hostCountFresh: hostCacheFresh,
                 hostCountRefreshing:
-                    pollerHostCountCache.isRefreshing,
+                    caches.pollerHostCountCache.isRefreshing,
                 hostCountUpdatedAt:
-                    pollerHostCountCache.updatedAt,
+                    caches.pollerHostCountCache.updatedAt,
                 serviceCountsLoaded,
                 serviceCountsFresh: serviceCacheFresh,
                 serviceCountsRefreshing:
-                    dashboardGlobalSummaryCache.isRefreshing,
+                    caches.dashboardGlobalSummaryCache.isRefreshing,
                 serviceCountsUpdatedAt:
-                    dashboardGlobalSummaryCache.updatedAt,
+                    caches.dashboardGlobalSummaryCache.updatedAt,
                 serviceCountsSource: serviceCountsLoaded
-                    ? dashboardGlobalSummaryCache.source ||
+                    ? caches.dashboardGlobalSummaryCache.source ||
                         "centreon-monitoring-resources"
                     : "loading"
             }
@@ -1710,6 +1762,7 @@ const getAllPollers = async (req, res, next) => {
 
 const getPollerHosts = async (req, res, next) => {
     try {
+        const caches = getCachesForRequest(req);
         const { pollerId } = req.params;
         const monitoringServerMap = await getMonitoringServerMap(req);
         const mappedServer = monitoringServerMap[String(pollerId)];
@@ -1720,19 +1773,19 @@ const getPollerHosts = async (req, res, next) => {
         const now = Date.now();
 
         const hasAnyCache =
-            pollerHostCountCache.updatedAt &&
-            pollerHostCountCache.hostsByPoller;
+            caches.pollerHostCountCache.updatedAt &&
+            caches.pollerHostCountCache.hostsByPoller;
 
         const hasFreshCache =
-            pollerHostCountCache.updatedAt &&
-            now - pollerHostCountCache.updatedAt < POLLER_HOST_COUNT_CACHE_TTL_MS;
+            caches.pollerHostCountCache.updatedAt &&
+            now - caches.pollerHostCountCache.updatedAt < POLLER_HOST_COUNT_CACHE_TTL_MS;
 
-        if (!hasFreshCache && !pollerHostCountCache.isRefreshing) {
+        if (!hasFreshCache && !caches.pollerHostCountCache.isRefreshing) {
             refreshPollerHostCountCache(req, monitoringServerMap);
         }
 
         const allHostsForPoller =
-            pollerHostCountCache.hostsByPoller?.[String(pollerId)] || [];
+            caches.pollerHostCountCache.hostsByPoller?.[String(pollerId)] || [];
 
         if (!hasAnyCache) {
             return res.json({
@@ -1749,7 +1802,7 @@ const getPollerHosts = async (req, res, next) => {
                     total: 0,
                     totalPages: 1,
                     hostCacheLoaded: false,
-                    hostCacheRefreshing: pollerHostCountCache.isRefreshing
+                    hostCacheRefreshing: caches.pollerHostCountCache.isRefreshing
                 }
             });
         }
@@ -1774,8 +1827,8 @@ const getPollerHosts = async (req, res, next) => {
                 totalPages: Math.max(1, Math.ceil(allHostsForPoller.length / limit)),
                 hostCacheLoaded: true,
                 hostCacheFresh: Boolean(hasFreshCache),
-                hostCacheRefreshing: pollerHostCountCache.isRefreshing,
-                hostCacheUpdatedAt: pollerHostCountCache.updatedAt
+                hostCacheRefreshing: caches.pollerHostCountCache.isRefreshing,
+                hostCacheUpdatedAt: caches.pollerHostCountCache.updatedAt
             }
         });
 
@@ -1786,6 +1839,7 @@ const getPollerHosts = async (req, res, next) => {
 
 const getPollerServiceSummary = async (req, res, next) => {
     try {
+        const caches = getCachesForRequest(req);
         const { pollerId } = req.params;
         const page = Math.max(1, Number(req.query.page) || 1);
         const limit = Math.min(
@@ -1818,25 +1872,25 @@ const getPollerServiceSummary = async (req, res, next) => {
         const pollerKey = normalizePollerKey(pollerName);
         const now = Date.now();
         const serviceCacheFresh = Boolean(
-            dashboardGlobalSummaryCache.updatedAt &&
-            now - dashboardGlobalSummaryCache.updatedAt <
+            caches.dashboardGlobalSummaryCache.updatedAt &&
+            now - caches.dashboardGlobalSummaryCache.updatedAt <
                 DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
         );
 
-        if (!serviceCacheFresh && !dashboardGlobalSummaryCache.isRefreshing) {
-            if (!dashboardGlobalSummaryCache.updatedAt) {
+        if (!serviceCacheFresh && !caches.dashboardGlobalSummaryCache.isRefreshing) {
+            if (!caches.dashboardGlobalSummaryCache.updatedAt) {
                 await refreshDashboardGlobalSummaryCache(req);
             } else {
                 refreshDashboardGlobalSummaryCache(req);
             }
         }
 
-        if (!dashboardGlobalSummaryCache.updatedAt) {
+        if (!caches.dashboardGlobalSummaryCache.updatedAt) {
             return res.json({
                 success: true,
                 cached: false,
                 refreshing:
-                    dashboardGlobalSummaryCache.isRefreshing,
+                    caches.dashboardGlobalSummaryCache.isRefreshing,
                 poller_id: pollerId,
                 poller_name: pollerName,
                 poller_address: mappedServer?.address || "",
@@ -1878,16 +1932,16 @@ const getPollerServiceSummary = async (req, res, next) => {
                     cacheLoaded: false,
                     cacheFresh: false,
                     cacheRefreshing:
-                        dashboardGlobalSummaryCache.isRefreshing,
+                        caches.dashboardGlobalSummaryCache.isRefreshing,
                     cacheUpdatedAt:
-                        dashboardGlobalSummaryCache.updatedAt,
+                        caches.dashboardGlobalSummaryCache.updatedAt,
                     cacheTtlMs:
                         DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
                 }
             });
         }
 
-        const servicesByPoller = getUnhandledServicesByPoller();
+        const servicesByPoller = getUnhandledServicesByPoller(caches);
         const allPollerServices =
             servicesByPoller.get(pollerKey) || [];
         const pollerCounts = buildStatusCounts(allPollerServices);
@@ -1985,9 +2039,9 @@ const getPollerServiceSummary = async (req, res, next) => {
             success: true,
             cached: true,
             refreshing:
-                dashboardGlobalSummaryCache.isRefreshing,
+                caches.dashboardGlobalSummaryCache.isRefreshing,
             source:
-                dashboardGlobalSummaryCache.source ||
+                caches.dashboardGlobalSummaryCache.source ||
                 "centreon-monitoring-resources",
             poller_id: pollerId,
             poller_name: pollerName,
@@ -2038,9 +2092,9 @@ const getPollerServiceSummary = async (req, res, next) => {
                 cacheLoaded: true,
                 cacheFresh: serviceCacheFresh,
                 cacheRefreshing:
-                    dashboardGlobalSummaryCache.isRefreshing,
+                    caches.dashboardGlobalSummaryCache.isRefreshing,
                 cacheUpdatedAt:
-                    dashboardGlobalSummaryCache.updatedAt,
+                    caches.dashboardGlobalSummaryCache.updatedAt,
                 cacheTtlMs:
                     DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
             }
@@ -2336,6 +2390,7 @@ const getServiceStatusSummary = async (req, res, next) => {
 // --- Updated: supports statusFilter ---
 const getGlobalServiceStatusSummary = async (req, res, next) => {
     try {
+        const caches = getCachesForRequest(req);
         const statusFilter = normalizeStatusFilter(
             req.query.statusFilter || "unhandled"
         );
@@ -2344,7 +2399,7 @@ const getGlobalServiceStatusSummary = async (req, res, next) => {
         let cacheToUse;
 
         if (statusFilter === "unhandled") {
-            cacheToUse = dashboardGlobalSummaryCache;
+            cacheToUse = caches.dashboardGlobalSummaryCache;
             // Trigger refresh if stale
             const hasFreshCache =
                 cacheToUse.updatedAt &&
@@ -2353,7 +2408,7 @@ const getGlobalServiceStatusSummary = async (req, res, next) => {
                 refreshDashboardGlobalSummaryCache(req);
             }
         } else {
-            cacheToUse = allActiveServicesCache;
+            cacheToUse = caches.allActiveServicesCache;
             // Trigger refresh if stale
             const hasFreshCache =
                 cacheToUse.updatedAt &&
@@ -2442,6 +2497,7 @@ const getGlobalServiceStatusSummary = async (req, res, next) => {
 // --- Updated: supports statusFilter ---
 const getGlobalServiceFilterOptions = async (req, res, next) => {
     try {
+        const caches = getCachesForRequest(req);
         const requestedType = String(req.query.type || "all")
             .trim()
             .toLowerCase();
@@ -2477,7 +2533,7 @@ const getGlobalServiceFilterOptions = async (req, res, next) => {
         let cacheToUse;
 
         if (statusFilter === "unhandled") {
-            cacheToUse = dashboardGlobalSummaryCache;
+            cacheToUse = caches.dashboardGlobalSummaryCache;
             const hasFreshCache =
                 cacheToUse.updatedAt &&
                 now - cacheToUse.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
@@ -2485,7 +2541,7 @@ const getGlobalServiceFilterOptions = async (req, res, next) => {
                 refreshDashboardGlobalSummaryCache(req);
             }
         } else {
-            cacheToUse = allActiveServicesCache;
+            cacheToUse = caches.allActiveServicesCache;
             const hasFreshCache =
                 cacheToUse.updatedAt &&
                 now - cacheToUse.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
@@ -2672,6 +2728,7 @@ const getGlobalServiceFilterOptions = async (req, res, next) => {
 // --- Updated: supports statusFilter ---
 const getGlobalServiceStatusSummaryList = async (req, res, next) => {
     try {
+        const caches = getCachesForRequest(req);
         const requestedType = String(req.query.type || "all")
             .trim()
             .toLowerCase();
@@ -2714,7 +2771,7 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
         // Determine which cache to use
         let cacheToUse;
         if (statusFilter === "unhandled") {
-            cacheToUse = dashboardGlobalSummaryCache;
+            cacheToUse = caches.dashboardGlobalSummaryCache;
             const hasFreshCache =
                 cacheToUse.updatedAt &&
                 now - cacheToUse.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
@@ -2722,7 +2779,7 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
                 refreshDashboardGlobalSummaryCache(req);
             }
         } else {
-            cacheToUse = allActiveServicesCache;
+            cacheToUse = caches.allActiveServicesCache;
             const hasFreshCache =
                 cacheToUse.updatedAt &&
                 now - cacheToUse.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
@@ -3011,6 +3068,7 @@ const getGlobalServiceResourcesParity = async (
 
 const getDataCenterHostGroups = async (req, res, next) => {
     try {
+        const caches = getCachesForRequest(req);
         const page = Math.max(1, Number(req.query.page) || 1);
         const limit = Math.min(
             1000,
@@ -3039,7 +3097,7 @@ const getDataCenterHostGroups = async (req, res, next) => {
         let cacheToUse;
 
         if (statusFilter === "unhandled") {
-            cacheToUse = dashboardGlobalSummaryCache;
+            cacheToUse = caches.dashboardGlobalSummaryCache;
             const hasFreshCache =
                 cacheToUse.updatedAt &&
                 now - cacheToUse.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
@@ -3047,7 +3105,7 @@ const getDataCenterHostGroups = async (req, res, next) => {
                 refreshDashboardGlobalSummaryCache(req);
             }
         } else {
-            cacheToUse = allActiveServicesCache;
+            cacheToUse = caches.allActiveServicesCache;
             const hasFreshCache =
                 cacheToUse.updatedAt &&
                 now - cacheToUse.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
@@ -3145,20 +3203,20 @@ const getDataCenterHostGroups = async (req, res, next) => {
 
         const nowHostGroups = Date.now();
         const hostGroupsFresh = Boolean(
-            hostGroupsCache.updatedAt &&
-            nowHostGroups - hostGroupsCache.updatedAt < HOST_GROUPS_CACHE_TTL_MS
+            caches.hostGroupsCache.updatedAt &&
+            nowHostGroups - caches.hostGroupsCache.updatedAt < HOST_GROUPS_CACHE_TTL_MS
         );
 
-        if (!hostGroupsFresh && !hostGroupsCache.isRefreshing) {
+        if (!hostGroupsFresh && !caches.hostGroupsCache.isRefreshing) {
             refreshHostGroupsCache(req);
         }
 
-        if (!hostGroupsCache.updatedAt) {
+        if (!caches.hostGroupsCache.updatedAt) {
             // Cold start – cache is empty, tell frontend to retry.
             return res.json({
                 success: true,
                 cached: false,
-                refreshing: hostGroupsCache.isRefreshing,
+                refreshing: caches.hostGroupsCache.isRefreshing,
                 statusFilter,
                 query: { search, includeHosts },
                 counts: {
@@ -3178,14 +3236,14 @@ const getDataCenterHostGroups = async (req, res, next) => {
                     totalPages: 1,
                     cacheLoaded: false,
                     cacheFresh: false,
-                    cacheRefreshing: hostGroupsCache.isRefreshing,
-                    cacheUpdatedAt: hostGroupsCache.updatedAt,
+                    cacheRefreshing: caches.hostGroupsCache.isRefreshing,
+                    cacheUpdatedAt: caches.hostGroupsCache.updatedAt,
                     cacheTtlMs: HOST_GROUPS_CACHE_TTL_MS
                 }
             });
         }
 
-        const allHostGroups = hostGroupsCache.groups || [];
+        const allHostGroups = caches.hostGroupsCache.groups || [];
         const totalGroupsFromCentreon = allHostGroups.length;
 
         const zeroCounts = () => ({
@@ -3346,10 +3404,10 @@ const getDataCenterHostGroups = async (req, res, next) => {
                 cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS,
                 totalActiveServicesCached: allServices.length,
                 totalServicesInSelectedView: selectedServices.length,
-                hostGroupsCached: Boolean(hostGroupsCache.updatedAt),
+                hostGroupsCached: Boolean(caches.hostGroupsCache.updatedAt),
                 hostGroupsFresh,
-                hostGroupsRefreshing: hostGroupsCache.isRefreshing,
-                hostGroupsUpdatedAt: hostGroupsCache.updatedAt,
+                hostGroupsRefreshing: caches.hostGroupsCache.isRefreshing,
+                hostGroupsUpdatedAt: caches.hostGroupsCache.updatedAt,
                 hostGroupsTtlMs: HOST_GROUPS_CACHE_TTL_MS
             }
         });
@@ -3489,6 +3547,7 @@ const resolveServiceResourceIds = async (req, targetHost, targetService) => {
 };
 
 const acknowledgeService = async (req, res, next) => {
+    const caches = getCachesForRequest(req);
     const {
         host,
         service,
@@ -3552,7 +3611,7 @@ const acknowledgeService = async (req, res, next) => {
             }
         );
 
-        const cachePatchedCount = markDashboardCachedServiceAsAcknowledged({
+        const cachePatchedCount = markDashboardCachedServiceAsAcknowledged(req, {
             hostId,
             serviceId,
             hostName: targetHost,
@@ -3601,7 +3660,7 @@ const acknowledgeService = async (req, res, next) => {
             auditError,
             cachePatchedCount,
             updatedCounts:
-                dashboardGlobalSummaryCache.counts,
+                caches.dashboardGlobalSummaryCache.counts,
             resource: {
                 host: targetHost,
                 service: targetService,
@@ -3645,6 +3704,7 @@ const acknowledgeService = async (req, res, next) => {
 };
 
 const unacknowledgeService = async (req, res, next) => {
+    const caches = getCachesForRequest(req);
     const {
         host,
         service,
@@ -3692,7 +3752,7 @@ const unacknowledgeService = async (req, res, next) => {
 
         const centreonResponse = await sendCentreonUnacknowledgeRequest(req, payload);
 
-        const cachePatchedCount = markDashboardCachedServiceAsUnacknowledged({
+        const cachePatchedCount = markDashboardCachedServiceAsUnacknowledged(req, {
             hostId,
             serviceId,
             hostName: targetHost,
@@ -3700,7 +3760,7 @@ const unacknowledgeService = async (req, res, next) => {
         });
         // The production cache is unhandled-only. Re-query Centreon after
         // UNACK instead of inventing a local resource record.
-        dashboardGlobalSummaryCache.updatedAt = null;
+        caches.dashboardGlobalSummaryCache.updatedAt = null;
         refreshDashboardGlobalSummaryCache(req);
 
         let auditLogged = false;
@@ -3743,7 +3803,7 @@ const unacknowledgeService = async (req, res, next) => {
             auditError,
             cachePatchedCount,
             updatedCounts:
-                dashboardGlobalSummaryCache.counts,
+                caches.dashboardGlobalSummaryCache.counts,
             resource: {
                 host: targetHost,
                 service: targetService,
