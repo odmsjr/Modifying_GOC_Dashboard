@@ -1335,10 +1335,7 @@ const refreshDashboardGlobalSummaryCache = async (req) => {
         return;
     }
 
-    caches.dashboardGlobalSummaryCache = {
-        ...caches.dashboardGlobalSummaryCache,
-        isRefreshing: true
-    };
+    caches.dashboardGlobalSummaryCache.isRefreshing = true;
 
     try {
         const results = [];
@@ -1452,10 +1449,7 @@ const refreshAllActiveServicesCache = async (req) => {
         return;
     }
 
-    caches.allActiveServicesCache = {
-        ...caches.allActiveServicesCache,
-        isRefreshing: true
-    };
+    caches.allActiveServicesCache.isRefreshing = true;
 
     try {
         const result = await fetchAllActiveResources(req);
@@ -2768,6 +2762,10 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
 
         const now = Date.now();
 
+        const forceRefresh = ["1", "true", "yes"].includes(
+            String(req.query.forceRefresh || "").toLowerCase()
+        );
+
         // Determine which cache to use
         let cacheToUse;
         if (statusFilter === "unhandled") {
@@ -2775,7 +2773,7 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
             const hasFreshCache =
                 cacheToUse.updatedAt &&
                 now - cacheToUse.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
-            if (!hasFreshCache && !cacheToUse.isRefreshing) {
+            if ((!hasFreshCache || forceRefresh) && !cacheToUse.isRefreshing) {
                 refreshDashboardGlobalSummaryCache(req);
             }
         } else {
@@ -2783,7 +2781,7 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
             const hasFreshCache =
                 cacheToUse.updatedAt &&
                 now - cacheToUse.updatedAt < DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
-            if (!hasFreshCache && !cacheToUse.isRefreshing) {
+            if ((!hasFreshCache || forceRefresh) && !cacheToUse.isRefreshing) {
                 refreshAllActiveServicesCache(req);
             }
         }
@@ -3422,6 +3420,235 @@ const getDataCenterHostGroups = async (req, res, next) => {
 };
 
 // ============================================================
+// DATA CENTER — SERVICES FOR ONE HOST
+// ============================================================
+// Returns the services behind a specific host row's severity
+// count in the Data Center host-group detail view.
+//
+// Mirrors getPollerServiceSummary: reads from per-token caches
+// only, no new Centreon API calls.
+
+const getDataCenterHostServices = async (req, res, next) => {
+    try {
+        const caches = getCachesForRequest(req);
+        const { hostId } = req.params;
+
+        const requestedType = String(req.query.type || "all")
+            .trim()
+            .toLowerCase();
+        const allowedTypes = new Set([
+            "all",
+            "critical",
+            "warning",
+            "unknown"
+        ]);
+        const type = allowedTypes.has(requestedType)
+            ? requestedType
+            : "all";
+
+        const statusFilter = normalizeStatusFilter(
+            req.query.statusFilter || "unhandled"
+        );
+
+        const serviceSearch = String(req.query.service || "")
+            .trim()
+            .toLowerCase();
+
+        const page = Math.max(1, Number(req.query.page) || 1);
+        const limit = Math.min(
+            1000,
+            Math.max(1, Number(req.query.limit) || 20)
+        );
+
+        const now = Date.now();
+        let cacheToUse;
+
+        if (statusFilter === "unhandled") {
+            cacheToUse = caches.dashboardGlobalSummaryCache;
+            const hasFreshCache =
+                cacheToUse.updatedAt &&
+                now - cacheToUse.updatedAt <
+                    DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
+            if (!hasFreshCache && !cacheToUse.isRefreshing) {
+                refreshDashboardGlobalSummaryCache(req);
+            }
+        } else {
+            cacheToUse = caches.allActiveServicesCache;
+            const hasFreshCache =
+                cacheToUse.updatedAt &&
+                now - cacheToUse.updatedAt <
+                    DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS;
+            if (!hasFreshCache && !cacheToUse.isRefreshing) {
+                refreshAllActiveServicesCache(req);
+            }
+        }
+
+        if (!cacheToUse.updatedAt) {
+            return res.json({
+                success: true,
+                cached: false,
+                refreshing: cacheToUse.isRefreshing,
+                host_id: hostId,
+                type,
+                statusFilter,
+                counts: {
+                    allActiveIssues: 0,
+                    critical: 0,
+                    warning: 0,
+                    unknown: 0,
+                    allServices: 0,
+                    filtered: 0
+                },
+                data: { result: [] },
+                options: { services: [] },
+                meta: {
+                    page,
+                    limit,
+                    total: 0,
+                    totalPages: 1,
+                    cacheLoaded: false,
+                    cacheFresh: false,
+                    cacheRefreshing: cacheToUse.isRefreshing,
+                    cacheUpdatedAt: cacheToUse.updatedAt,
+                    cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
+                }
+            });
+        }
+
+        const allServices = [
+            ...(cacheToUse.services.critical || []),
+            ...(cacheToUse.services.warning || []),
+            ...(cacheToUse.services.unknown || [])
+        ];
+
+        let handlingFilteredServices;
+        if (statusFilter === "acknowledged") {
+            handlingFilteredServices =
+                allServices.filter(isAcknowledgedActiveService);
+        } else if (statusFilter === "all") {
+            handlingFilteredServices =
+                allServices.filter(isActiveIssueService);
+        } else {
+            handlingFilteredServices =
+                allServices.filter(isUnhandledActiveService);
+        }
+
+        const hostServices = handlingFilteredServices.filter((service) => {
+            const serviceHostId =
+                service.host?.id ??
+                service.host?.host_id ??
+                service.host_id;
+            return String(serviceHostId) === String(hostId);
+        });
+
+        const matchesServiceSearch = (service) => {
+            if (!serviceSearch) return true;
+
+            return [
+                service.description,
+                service.display_name,
+                service.service_name,
+                service.output
+            ].some((value) =>
+                String(value || "")
+                    .toLowerCase()
+                    .includes(serviceSearch)
+            );
+        };
+
+        const searchedServices = hostServices.filter(matchesServiceSearch);
+
+        let selectedServices = searchedServices;
+
+        if (type === "critical") {
+            selectedServices = searchedServices.filter(
+                (service) => Number(service.statusCode) === 2
+            );
+        } else if (type === "warning") {
+            selectedServices = searchedServices.filter(
+                (service) => Number(service.statusCode) === 1
+            );
+        } else if (type === "unknown") {
+            selectedServices = searchedServices.filter(
+                (service) => Number(service.statusCode) === 3
+            );
+        }
+
+        const severityRank = (service) => {
+            const code = Number(service.statusCode);
+            if (code === 2) return 0;
+            if (code === 1) return 1;
+            if (code === 3) return 2;
+            return 3;
+        };
+
+        selectedServices = [...selectedServices].sort(
+            (a, b) => severityRank(a) - severityRank(b)
+        );
+
+        const serviceOptions = [
+            ...new Set(
+                hostServices
+                    .map((service) =>
+                        String(
+                            service.description ||
+                            service.display_name ||
+                            service.service_name ||
+                            ""
+                        ).trim()
+                    )
+                    .filter(Boolean)
+            )
+        ].sort((a, b) => a.localeCompare(b));
+
+        const hostCounts = buildStatusCounts(hostServices);
+
+        const startIndex = (page - 1) * limit;
+        const pagedServices = selectedServices.slice(
+            startIndex,
+            startIndex + limit
+        );
+
+        return res.json({
+            success: true,
+            cached: true,
+            refreshing: cacheToUse.isRefreshing,
+            host_id: hostId,
+            type,
+            statusFilter,
+            counts: {
+                ...hostCounts,
+                allServices: hostCounts.allActiveIssues,
+                filtered: selectedServices.length
+            },
+            data: { result: pagedServices },
+            options: { services: serviceOptions },
+            meta: {
+                page,
+                limit,
+                total: selectedServices.length,
+                totalPages: Math.max(
+                    1,
+                    Math.ceil(selectedServices.length / limit)
+                ),
+                cacheLoaded: true,
+                cacheFresh: Boolean(
+                    cacheToUse.updatedAt &&
+                    now - cacheToUse.updatedAt <
+                        DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
+                ),
+                cacheRefreshing: cacheToUse.isRefreshing,
+                cacheUpdatedAt: cacheToUse.updatedAt,
+                cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
+            }
+        });
+    } catch (error) {
+        return handleCentreonError(error, res, next);
+    }
+};
+
+
+// ============================================================
 // ACKNOWLEDGEMENT ACTIONS
 // ============================================================
 
@@ -3926,5 +4153,6 @@ module.exports = {
     acknowledgeService,
     unacknowledgeService,
     testMonitoringServers,
-    getDataCenterHostGroups
+    getDataCenterHostGroups,
+    getDataCenterHostServices
 };

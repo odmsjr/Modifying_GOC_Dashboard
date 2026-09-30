@@ -223,7 +223,33 @@ const DataCenterContent = ({
   detailFilter,
   setDetailFilter,
   onRefresh,
+  hostServicesView,
+  setHostServicesView,
+  hostServices,
+  hostServicesLoading,
+  hostServicesMeta,
+  setHostServicesMeta,
+  hostServicesCounts,
+  hostServicesServiceFilter,
+  setHostServicesServiceFilter,
+  hostServicesPage,
+  setHostServicesPage,
+  hostServicesLimit,
+  setHostServicesLimit,
+  hostServicesOptions,
+  isServiceAcknowledged,
+  getAckKey,
+  extractIpFromText,
+  handleAcknowledge,
+  handleUnacknowledge,
+  ackInProgressIds,
+  unackInProgressIds,
+  setPendingAck,
+  setAckComment,
+  setShowAckModal,
 }) => {
+
+
   const selectedHosts = selectedGroup?.hosts || [];
   const [hostGroupSort, setHostGroupSort] = useState("default");
 
@@ -300,6 +326,242 @@ const DataCenterContent = ({
         <button className="refresh-btn" onClick={onRefresh}>
           Retry
         </button>
+      </div>
+    );
+  }
+
+
+    if (hostServicesView) {
+    const typeLabel =
+      {
+        critical: "Critical",
+        warning: "Warning",
+        unknown: "Unknown",
+        all: "All Active",
+      }[hostServicesView.type] || "All Active";
+
+    return (
+      <div className="data-center-container">
+        <div className="data-center-detail-header">
+          <button
+            className="refresh-btn"
+            onClick={() => setHostServicesView(null)}
+          >
+            ⬅ Back to Hosts
+          </button>
+          <h2>
+            {hostServicesView.hostName} — {typeLabel} Services
+          </h2>
+        </div>
+
+        <div
+          className="filter-section-compact"
+          style={{ marginBottom: "16px" }}
+        >
+          <div className="filter-controls-inline">
+            <div className="filter-input-group-compact">
+              <label>SERVICES</label>
+              <FilterCombobox
+                label="Service"
+                value={hostServicesServiceFilter}
+                options={hostServicesOptions.services}
+                loading={hostServicesLoading}
+                placeholder="Filter service..."
+                onChange={(value) => {
+                  setHostServicesServiceFilter(value);
+                  setHostServicesPage(1);
+                }}
+              />
+            </div>
+            <div className="filter-input-group-compact">
+              <label>STATUS</label>
+              <div
+                className="filter-readonly-compact"
+                role="status"
+                aria-label="Current Data Center handling state"
+              >
+                Unhandled Problems
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="data-center-detail-controls-bottom">
+          <span>
+            {hostServicesLoading
+              ? "Loading..."
+              : `${hostServices.length} of ${hostServicesMeta.total || 0} matching services`}
+          </span>
+          <select
+            className="data-center-page-size-select"
+            value={hostServicesLimit}
+            onChange={(event) => {
+              setHostServicesLimit(Number(event.target.value));
+              setHostServicesPage(1);
+            }}
+            disabled={hostServicesLoading}
+          >
+            <option value="10">10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="999999">All</option>
+          </select>
+          <button
+            className="data-center-page-btn"
+            onClick={() =>
+              setHostServicesPage((current) => Math.max(1, current - 1))
+            }
+            disabled={hostServicesLoading || hostServicesPage <= 1}
+          >
+            Prev
+          </button>
+          <span>
+            Page {hostServicesPage} of {hostServicesMeta.totalPages || 1}
+          </span>
+          <button
+            className="data-center-page-btn"
+            onClick={() =>
+              setHostServicesPage((current) =>
+                Math.min(
+                  hostServicesMeta.totalPages || 1,
+                  current + 1,
+                ),
+              )
+            }
+            disabled={
+              hostServicesLoading ||
+              hostServicesPage >= (hostServicesMeta.totalPages || 1)
+            }
+          >
+            Next
+          </button>
+        </div>
+
+        <div className="data-center-table-wrapper">
+          <table className="data-center-detail-table services-table">
+            <thead>
+              <tr>
+                <th>Host</th>
+                <th>Service</th>
+                <th>Output Summary</th>
+                <th>Status</th>
+                <th>Acknowledged</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hostServicesLoading ? (
+                <tr>
+                  <td colSpan="5" className="loading-cell">
+                    Loading services for {hostServicesView.hostName}...
+                  </td>
+                </tr>
+              ) : hostServices.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="loading-cell">
+                    No {typeLabel.toLowerCase()} unhandled services found for
+                    this host.
+                  </td>
+                </tr>
+              ) : (
+                hostServices.map((service, idx) => {
+                  const hostName =
+                    service.host?.name || service.host?.display_name;
+                  const serviceDescription =
+                    service.description || service.display_name;
+
+                  const hostAddress =
+                    service.host?.address ||
+                    service.host?.ip ||
+                    service.host?.ip_address ||
+                    service.host?.address_ip ||
+                    extractIpFromText(service.output);
+
+                  const ackKey = getAckKey(
+                    hostName,
+                    serviceDescription,
+                    service.host?.id,
+                    service.id,
+                  );
+
+                  const acknowledged = isServiceAcknowledged(service);
+
+                  return (
+                    <tr
+                      key={`${service.host?.id || service.host?.name || "host"}-${service.id || service.description || idx}`}
+                      className={
+                        acknowledged
+                          ? "service-row-acknowledged"
+                          : `service-row-${service.statusName?.toLowerCase()}`
+                      }
+                    >
+                      <td className="host-name">{hostName || "N/A"}</td>
+
+                      <td className="service-name">
+                        {serviceDescription || "N/A"}
+                      </td>
+
+                      <td className="service-output">
+                        {service.output || "No output details provided."}
+                      </td>
+
+                      <td>
+                        <span
+                          className={`status-text ${service.statusName?.toLowerCase()}`}
+                        >
+                          {service.statusName}
+                        </span>
+                      </td>
+
+                      <td className="ack-cell">
+                        {acknowledged ? (
+                          <button
+                            className="ack-badge ack-success-badge"
+                            disabled={unackInProgressIds.has(ackKey)}
+                            onClick={() =>
+                              handleUnacknowledge(
+                                hostName,
+                                serviceDescription,
+                                service.host?.id,
+                                service.id,
+                                hostAddress,
+                              )
+                            }
+                            title="Click to remove acknowledgement"
+                          >
+                            {unackInProgressIds.has(ackKey)
+                              ? "REMOVING..."
+                              : "ACKNOWLEDGED"}
+                          </button>
+                        ) : (
+                          <button
+                            className="ack-btn ack-action-btn"
+                            disabled={ackInProgressIds.has(ackKey)}
+                            onClick={() => {
+                              setPendingAck({
+                                hostName,
+                                serviceDescription,
+                                hostId: service.host?.id,
+                                serviceId: service.id,
+                                hostAddress,
+                              });
+                              setAckComment("");
+                              setShowAckModal(true);
+                            }}
+                          >
+                            {ackInProgressIds.has(ackKey)
+                              ? "ACKING..."
+                              : "ACKNOWLEDGE"}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -421,37 +683,78 @@ const DataCenterContent = ({
                   </td>
                 </tr>
               ) : (
-                paginatedDetailHosts.map((host) => (
-                  <tr key={host.id ?? host.name}>
-                    <td className="host-name">{host.name || "N/A"}</td>
-                    <td>{host.alias || "-"}</td>
-                    <td className="critical-count">
-                      {host.counts?.critical || 0}
-                    </td>
-                    <td className="warning-count">
-                      {host.counts?.warning || 0}
-                    </td>
-                    <td className="unknown-count">
-                      {host.counts?.unknown || 0}
-                    </td>
-                    <td className="total-count">
-                      {host.counts?.allActiveIssues || 0}
-                    </td>
-                    <td>
-                      <span className={`host-status status-${host.state}`}>
-                        {Number(host.state) === 0
-                          ? "UP"
-                          : Number(host.state) === 1
-                            ? "DOWN"
-                            : Number(host.state) === 2
-                              ? "UNREACHABLE"
-                              : Number(host.state) === 3
-                                ? "PENDING"
-                                : "UNKNOWN"}
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                paginatedDetailHosts.map((host) => {
+                  const hostId = host.id ?? host.id;
+                  const openServices = (type) => {
+                    setHostServicesView({
+                      hostId,
+                      hostName: host.name || "Unknown Host",
+                      type,
+                    });
+                    setHostServicesPage(1);
+                    setHostServicesServiceFilter("");
+                  };
+
+                  return (
+                    <tr key={host.id ?? host.name}>
+                      <td className="host-name">{host.name || "N/A"}</td>
+                      <td>{host.alias || "-"}</td>
+                      <td className="critical-count">
+                        <button
+                          type="button"
+                          className="count-cell-btn count-critical"
+                          onClick={() => openServices("critical")}
+                          title="View critical services on this host"
+                        >
+                          {host.counts?.critical || 0}
+                        </button>
+                      </td>
+                      <td className="warning-count">
+                        <button
+                          type="button"
+                          className="count-cell-btn count-warning"
+                          onClick={() => openServices("warning")}
+                          title="View warning services on this host"
+                        >
+                          {host.counts?.warning || 0}
+                        </button>
+                      </td>
+                      <td className="unknown-count">
+                        <button
+                          type="button"
+                          className="count-cell-btn count-unknown"
+                          onClick={() => openServices("unknown")}
+                          title="View unknown services on this host"
+                        >
+                          {host.counts?.unknown || 0}
+                        </button>
+                      </td>
+                      <td className="total-count">
+                        <button
+                          type="button"
+                          className="count-cell-btn count-total"
+                          onClick={() => openServices("all")}
+                          title="View all active services on this host"
+                        >
+                          {host.counts?.allActiveIssues || 0}
+                        </button>
+                      </td>
+                      <td>
+                        <span className={`host-status status-${host.state}`}>
+                          {Number(host.state) === 0
+                            ? "UP"
+                            : Number(host.state) === 1
+                              ? "DOWN"
+                              : Number(host.state) === 2
+                                ? "UNREACHABLE"
+                                : Number(host.state) === 3
+                                  ? "PENDING"
+                                  : "UNKNOWN"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -809,6 +1112,41 @@ export default function Dashboard() {
   const dataCenterRequestIdRef = useRef(0);
   const dataCenterRetryTimerRef = useRef(null);
 
+    // --- DATA CENTER: HOST SERVICES VIEW ---
+  const [dataCenterHostServicesView, setDataCenterHostServicesView] =
+    useState(null);
+  // Shape: { hostId, hostName, type } or null
+
+  const [dataCenterHostServices, setDataCenterHostServices] = useState([]);
+  const [dataCenterHostServicesLoading, setDataCenterHostServicesLoading] =
+    useState(false);
+  const [dataCenterHostServicesMeta, setDataCenterHostServicesMeta] =
+    useState({
+      page: 1,
+      limit: 20,
+      total: 0,
+      totalPages: 1,
+    });
+  const [dataCenterHostServicesCounts, setDataCenterHostServicesCounts] =
+    useState({
+      allActiveIssues: 0,
+      critical: 0,
+      warning: 0,
+      unknown: 0,
+      allServices: 0,
+      filtered: 0,
+    });
+  const [dataCenterHostServicesServiceFilter, setDataCenterHostServicesServiceFilter] =
+    useState("");
+  const [dataCenterHostServicesPage, setDataCenterHostServicesPage] =
+    useState(1);
+  const [dataCenterHostServicesLimit, setDataCenterHostServicesLimit] =
+    useState(20);
+  const [dataCenterHostServicesOptions, setDataCenterHostServicesOptions] =
+    useState({ services: [] });
+  const dataCenterHostServicesRequestIdRef = useRef(0);
+  const dataCenterHostServicesRetryTimerRef = useRef(null);
+
   // ============================================================
   // NORMALIZER HELPERS
   // ============================================================
@@ -1070,6 +1408,7 @@ export default function Dashboard() {
       hostSearch = "",
       serviceSearch = "",
       statusFilterParam = "unhandled",
+      forceRefresh = false,
     ) => {
       const requestId = dashboardGlobalListRequestIdRef.current + 1;
       dashboardGlobalListRequestIdRef.current = requestId;
@@ -1104,6 +1443,10 @@ export default function Dashboard() {
 
         if (serviceSearch) {
           params.set("service", serviceSearch);
+        }
+
+        if (forceRefresh) {
+          params.set("forceRefresh", "1");
         }
 
         const response = await fetch(
@@ -1380,6 +1723,127 @@ export default function Dashboard() {
       debouncedDataCenterSearch,
     ],
   );
+
+
+  const fetchDataCenterHostServices = useCallback(
+    async ({
+      hostId,
+      type = "all",
+      page = 1,
+      limit = 20,
+      service = "",
+    }) => {
+      if (!hostId) return;
+
+      const requestId = dataCenterHostServicesRequestIdRef.current + 1;
+      dataCenterHostServicesRequestIdRef.current = requestId;
+      const isLatestRequest = () =>
+        dataCenterHostServicesRequestIdRef.current === requestId;
+
+      if (dataCenterHostServicesRetryTimerRef.current) {
+        clearTimeout(dataCenterHostServicesRetryTimerRef.current);
+        dataCenterHostServicesRetryTimerRef.current = null;
+      }
+
+      try {
+        setDataCenterHostServicesLoading(true);
+
+        const token = localStorage.getItem("centreon_auth_token");
+        const params = new URLSearchParams({
+          type,
+          statusFilter: dataCenterStatusFilter,
+          page: String(page),
+          limit: String(limit),
+        });
+
+        if (service) params.set("service", service);
+
+        const response = await fetch(
+          `${BASE_API_URL}/api/centreon/datacenter/hosts/${hostId}/services?${params.toString()}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          throw new Error(
+            payload?.message ||
+              `Data Center host services failed with HTTP ${response.status}`,
+          );
+        }
+
+        if (!isLatestRequest()) return;
+
+        setDataCenterHostServices(
+          (payload?.data?.result || []).map(normalizeService),
+        );
+        setDataCenterHostServicesMeta(
+          payload?.meta || {
+            page,
+            limit,
+            total: 0,
+            totalPages: 1,
+          },
+        );
+        setDataCenterHostServicesCounts(
+          payload?.counts || {
+            allActiveIssues: 0,
+            critical: 0,
+            warning: 0,
+            unknown: 0,
+            allServices: 0,
+            filtered: 0,
+          },
+        );
+        setDataCenterHostServicesOptions({
+          services: Array.isArray(payload?.options?.services)
+            ? payload.options.services
+            : [],
+        });
+
+        if (
+          payload?.cached === false ||
+          payload?.meta?.cacheLoaded === false ||
+          payload?.meta?.cacheRefreshing === true
+        ) {
+          dataCenterHostServicesRetryTimerRef.current = setTimeout(() => {
+            if (isLatestRequest()) {
+              fetchDataCenterHostServices({
+                hostId,
+                type,
+                page,
+                limit,
+                service,
+              });
+            }
+          }, 10000);
+        }
+      } catch (error) {
+        if (!isLatestRequest()) return;
+        console.error(
+          "Error loading Data Center host services:",
+          error,
+        );
+        setDataCenterHostServices([]);
+        setDataCenterHostServicesMeta({
+          page,
+          limit,
+          total: 0,
+          totalPages: 1,
+        });
+      } finally {
+        if (isLatestRequest()) {
+          setDataCenterHostServicesLoading(false);
+        }
+      }
+    },
+    [dataCenterStatusFilter],
+  );
+
 
   // ============================================================
   // DASHBOARD FETCH
@@ -1745,6 +2209,7 @@ export default function Dashboard() {
         debouncedHostSearch,
         debouncedServiceSearch,
         statusFilter,
+        true, // forceRefresh — bypasses TTL for manual refresh
       );
     }
 
@@ -1828,11 +2293,46 @@ export default function Dashboard() {
     }
   }, [location.pathname, fetchDataCenterHostGroups]);
 
+    useEffect(() => {
+    if (
+      location.pathname === "/datacenter" &&
+      dataCenterHostServicesView
+    ) {
+      fetchDataCenterHostServices({
+        hostId: dataCenterHostServicesView.hostId,
+        type: dataCenterHostServicesView.type,
+        page: dataCenterHostServicesPage,
+        limit: dataCenterHostServicesLimit,
+        service: dataCenterHostServicesServiceFilter,
+      });
+    }
+  }, [
+    location.pathname,
+    dataCenterHostServicesView,
+    dataCenterHostServicesPage,
+    dataCenterHostServicesLimit,
+    dataCenterHostServicesServiceFilter,
+    fetchDataCenterHostServices,
+  ]);
+
   useEffect(() => {
     return () => {
       dataCenterRequestIdRef.current += 1;
       if (dataCenterRetryTimerRef.current) {
         clearTimeout(dataCenterRetryTimerRef.current);
+      }
+    };
+  }, []);
+
+    useEffect(() => {
+    return () => {
+      dataCenterRequestIdRef.current += 1;
+      dataCenterHostServicesRequestIdRef.current += 1;
+      if (dataCenterRetryTimerRef.current) {
+        clearTimeout(dataCenterRetryTimerRef.current);
+      }
+      if (dataCenterHostServicesRetryTimerRef.current) {
+        clearTimeout(dataCenterHostServicesRetryTimerRef.current);
       }
     };
   }, []);
@@ -3547,6 +4047,30 @@ export default function Dashboard() {
               detailFilter={dataCenterDetailFilter}
               setDetailFilter={setDataCenterDetailFilter}
               onRefresh={() => fetchDataCenterHostGroups()}
+              hostServicesView={dataCenterHostServicesView}
+              setHostServicesView={setDataCenterHostServicesView}
+              hostServices={dataCenterHostServices}
+              hostServicesLoading={dataCenterHostServicesLoading}
+              hostServicesMeta={dataCenterHostServicesMeta}
+              setHostServicesMeta={setDataCenterHostServicesMeta}
+              hostServicesCounts={dataCenterHostServicesCounts}
+              hostServicesServiceFilter={dataCenterHostServicesServiceFilter}
+              setHostServicesServiceFilter={setDataCenterHostServicesServiceFilter}
+              hostServicesPage={dataCenterHostServicesPage}
+              setHostServicesPage={setDataCenterHostServicesPage}
+              hostServicesLimit={dataCenterHostServicesLimit}
+              setHostServicesLimit={setDataCenterHostServicesLimit}
+              hostServicesOptions={dataCenterHostServicesOptions}
+              isServiceAcknowledged={isServiceAcknowledged}
+              getAckKey={getAckKey}
+              extractIpFromText={extractIpFromText}
+              handleAcknowledge={handleAcknowledge}
+              handleUnacknowledge={handleUnacknowledge}
+              ackInProgressIds={ackInProgressIds}
+              unackInProgressIds={unackInProgressIds}
+              setPendingAck={setPendingAck}
+              setAckComment={setAckComment}
+              setShowAckModal={setShowAckModal}
             />
           </div>
         )}
