@@ -14,6 +14,7 @@ router.get('/pollers/:pollerId/services/summary', centreonController.getPollerSe
 
 // Data Center endpoints
 router.get('/datacenter/hostgroups', centreonController.getDataCenterHostGroups);
+router.get('/datacenter/hostgroups/:hostGroupId/hosts', centreonController.getDataCenterHostGroupHosts);
 router.get('/datacenter/hosts/:hostId/services', centreonController.getDataCenterHostServices);
 
 // Acknowledgement endpoints

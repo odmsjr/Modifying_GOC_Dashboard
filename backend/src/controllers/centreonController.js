@@ -3647,6 +3647,231 @@ const getDataCenterHostServices = async (req, res, next) => {
     }
 };
 
+// ============================================================
+// DATA CENTER — HOSTS OF ONE HOST GROUP
+// ============================================================
+// Returns the hosts inside a specific host group with their
+// per-host issue counts. Reads from per-token caches only.
+
+const getDataCenterHostGroupHosts = async (req, res, next) => {
+    try {
+        const caches = getCachesForRequest(req);
+        const { hostGroupId } = req.params;
+
+        const pollerFilter = String(req.query.poller || "")
+            .trim()
+            .toLowerCase();
+        const hostSearch = String(req.query.host || "")
+            .trim()
+            .toLowerCase();
+
+        const now = Date.now();
+
+        const serviceCacheFresh = Boolean(
+            caches.dashboardGlobalSummaryCache.updatedAt &&
+            now - caches.dashboardGlobalSummaryCache.updatedAt <
+                DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS
+        );
+
+        if (!serviceCacheFresh && !caches.dashboardGlobalSummaryCache.isRefreshing) {
+            if (!caches.dashboardGlobalSummaryCache.updatedAt) {
+                await refreshDashboardGlobalSummaryCache(req);
+            } else {
+                refreshDashboardGlobalSummaryCache(req);
+            }
+        }
+
+        const hostGroupsFresh = Boolean(
+            caches.hostGroupsCache.updatedAt &&
+            now - caches.hostGroupsCache.updatedAt < HOST_GROUPS_CACHE_TTL_MS
+        );
+
+        if (!hostGroupsFresh && !caches.hostGroupsCache.isRefreshing) {
+            refreshHostGroupsCache(req);
+        }
+
+        const zeroCounts = () => ({
+            critical: 0,
+            warning: 0,
+            unknown: 0,
+            allActiveIssues: 0
+        });
+
+        if (!caches.hostGroupsCache.updatedAt) {
+            return res.json({
+                success: true,
+                cached: false,
+                refreshing: caches.hostGroupsCache.isRefreshing,
+                host_group_id: hostGroupId,
+                host_group_name: null,
+                counts: {
+                    hostCount: 0,
+                    hostsWithIssues: 0,
+                    ...zeroCounts()
+                },
+                data: { result: [] },
+                meta: {
+                    cacheLoaded: false,
+                    cacheFresh: false,
+                    cacheRefreshing: caches.hostGroupsCache.isRefreshing,
+                    cacheUpdatedAt: caches.hostGroupsCache.updatedAt,
+                    cacheTtlMs: HOST_GROUPS_CACHE_TTL_MS,
+                    groupFound: false
+                }
+            });
+        }
+
+        const allGroups = caches.hostGroupsCache.groups || [];
+        const group = allGroups.find(
+            (g) =>
+                String(g.id ?? g.hostgroup_id) ===
+                String(hostGroupId)
+        );
+
+        if (!group) {
+            return res.json({
+                success: true,
+                cached: true,
+                refreshing: false,
+                host_group_id: hostGroupId,
+                host_group_name: null,
+                counts: {
+                    hostCount: 0,
+                    hostsWithIssues: 0,
+                    ...zeroCounts()
+                },
+                data: { result: [] },
+                meta: {
+                    cacheLoaded: true,
+                    cacheFresh: serviceCacheFresh,
+                    cacheRefreshing: false,
+                    cacheUpdatedAt: caches.hostGroupsCache.updatedAt,
+                    cacheTtlMs: HOST_GROUPS_CACHE_TTL_MS,
+                    groupFound: false
+                }
+            });
+        }
+
+        const rawHosts = Array.isArray(group.hosts)
+            ? group.hosts
+            : Array.isArray(group.host)
+                ? group.host
+                : [];
+
+        let allServices = [
+            ...(caches.dashboardGlobalSummaryCache.services.critical || []),
+            ...(caches.dashboardGlobalSummaryCache.services.warning || []),
+            ...(caches.dashboardGlobalSummaryCache.services.unknown || [])
+        ];
+
+        allServices = allServices.filter(isUnhandledActiveService);
+
+        if (pollerFilter) {
+            allServices = allServices.filter((s) => {
+                const sPoller = String(
+                    s.poller_name || s.host?.poller_name || ""
+                ).toLowerCase();
+                return sPoller === pollerFilter;
+            });
+        }
+
+        const hostIssueMap = new Map();
+        allServices.forEach((service) => {
+            const hostId =
+                service.host?.id ??
+                service.host?.host_id ??
+                service.host_id;
+
+            if (hostId === undefined || hostId === null) return;
+
+            const key = String(hostId);
+            if (!hostIssueMap.has(key)) {
+                hostIssueMap.set(key, zeroCounts());
+            }
+
+            const hc = hostIssueMap.get(key);
+
+            if (Number(service.statusCode) === 2) hc.critical += 1;
+            else if (Number(service.statusCode) === 1) hc.warning += 1;
+            else if (Number(service.statusCode) === 3) hc.unknown += 1;
+
+            hc.allActiveIssues =
+                hc.critical + hc.warning + hc.unknown;
+        });
+
+        const hosts = rawHosts
+            .map((h) => {
+                const hostId = h.id ?? h.host_id;
+                const counts =
+                    hostIssueMap.get(String(hostId)) || zeroCounts();
+
+                return {
+                    id: hostId,
+                    name: h.name || "",
+                    alias: h.alias || "",
+                    display_name:
+                        h.display_name || h.name || "",
+                    state: h.state ?? null,
+                    counts: { ...counts }
+                };
+            })
+            .filter((h) => {
+                if (!hostSearch) return true;
+                return (
+                    String(h.name || "")
+                        .toLowerCase()
+                        .includes(hostSearch) ||
+                    String(h.alias || "")
+                        .toLowerCase()
+                        .includes(hostSearch) ||
+                    String(h.display_name || "")
+                        .toLowerCase()
+                        .includes(hostSearch)
+                );
+            });
+
+        const overallCounts = zeroCounts();
+        let hostsWithIssues = 0;
+
+        hosts.forEach((h) => {
+            overallCounts.critical += h.counts.critical;
+            overallCounts.warning += h.counts.warning;
+            overallCounts.unknown += h.counts.unknown;
+            overallCounts.allActiveIssues += h.counts.allActiveIssues;
+            if (h.counts.allActiveIssues > 0) hostsWithIssues += 1;
+        });
+
+        return res.json({
+            success: true,
+            cached: true,
+            refreshing: caches.dashboardGlobalSummaryCache.isRefreshing,
+            host_group_id: hostGroupId,
+            host_group_name:
+                group.name ||
+                group.alias ||
+                `Host Group ${hostGroupId}`,
+            counts: {
+                hostCount: hosts.length,
+                hostsWithIssues,
+                ...overallCounts
+            },
+            data: { result: hosts },
+            meta: {
+                cacheLoaded: true,
+                cacheFresh: serviceCacheFresh,
+                cacheRefreshing: caches.dashboardGlobalSummaryCache.isRefreshing,
+                cacheUpdatedAt: caches.dashboardGlobalSummaryCache.updatedAt,
+                cacheTtlMs: DASHBOARD_GLOBAL_SUMMARY_CACHE_TTL_MS,
+                hostGroupsUpdatedAt: caches.hostGroupsCache.updatedAt,
+                groupFound: true
+            }
+        });
+    } catch (error) {
+        return handleCentreonError(error, res, next);
+    }
+};
+
+
 
 // ============================================================
 // ACKNOWLEDGEMENT ACTIONS
@@ -4154,5 +4379,6 @@ module.exports = {
     unacknowledgeService,
     testMonitoringServers,
     getDataCenterHostGroups,
-    getDataCenterHostServices
+    getDataCenterHostServices,
+    getDataCenterHostGroupHosts
 };
