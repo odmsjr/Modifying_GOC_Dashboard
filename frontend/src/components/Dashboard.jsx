@@ -2560,6 +2560,11 @@ export default function Dashboard() {
     refreshDashboardData();
     fetchPollersRoster();
 
+    // Warm the Data Center caches during the initial load so tab
+    // switches feel instant. `background: true` skips the spinner.
+    fetchDataCenterHostGroups({ background: true });
+    fetchDashboardHostGroupsList();
+
     const heartbeat = setInterval(() => {
       refreshDashboardData();
       fetchPollersRoster();
@@ -2577,13 +2582,13 @@ export default function Dashboard() {
           service: pollerServiceFilters.service,
         });
       }
-      if (location.pathname === "/datacenter") {
-        fetchDataCenterHostGroups({ background: true });
-      }
+      // Refresh the DC cache every 5 minutes regardless of the
+      // active tab, so switching to Data Center never shows stale data.
+      fetchDataCenterHostGroups({ background: true });
     }, 300000);
 
     return () => clearInterval(heartbeat);
-  }, [
+}, [
     refreshDashboardData,
     fetchPollersRoster,
     fetchPollerHosts,
@@ -2599,6 +2604,7 @@ export default function Dashboard() {
     location.pathname,
     navigate,
     fetchDataCenterHostGroups,
+    fetchDashboardHostGroupsList,
   ]);
 
   useEffect(() => {
