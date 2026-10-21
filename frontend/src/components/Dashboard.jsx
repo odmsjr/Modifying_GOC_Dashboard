@@ -1066,6 +1066,7 @@ export default function Dashboard() {
   // --- POLLERS PAGE STATE ---
   const [cachedPollers, setCachedPollers] = useState([]);
   const [pollerSearch, setPollerSearch] = useState("");
+  const pollersRetryTimerRef = useRef(null);
   const [pollerPage, setPollerPage] = useState(1);
   const [pollerLimit, setPollerLimit] = useState(20);
   const [selectedPoller, setSelectedPoller] = useState(null);
@@ -1119,7 +1120,12 @@ export default function Dashboard() {
   // --- ACKNOWLEDGE MODAL STATE ---
   const [showAckModal, setShowAckModal] = useState(false);
   const [ackComment, setAckComment] = useState("");
+  const [ackNotify, setAckNotify] = useState(false); // <-- NEW
   const [pendingAck, setPendingAck] = useState(null);
+
+  // --- POLLER ALERT POPUP STATE ---
+  const [pollerAlerts, setPollerAlerts] = useState([]);
+  const [showPollerPopup, setShowPollerPopup] = useState(false);
   // --- DATA CENTER STATE ---
   const [dataCenterGroups, setDataCenterGroups] = useState([]);
   const [dataCenterCounts, setDataCenterCounts] = useState({
@@ -2294,6 +2300,19 @@ export default function Dashboard() {
 
       const payload = await response.json();
 
+      // Clear any existing retry timer to prevent loops
+      if (pollersRetryTimerRef.current) {
+        clearTimeout(pollersRetryTimerRef.current);
+        pollersRetryTimerRef.current = null;
+      }
+
+      // If the backend is still loading the host counts, wait 3s and try again
+      if (!payload.meta?.hostCountLoaded) {
+        pollersRetryTimerRef.current = setTimeout(() => {
+          fetchPollersRoster();
+        }, 3000);
+      }
+
       const rawPollers = payload.data?.result || payload.result || [];
 
       const mappedPollers = rawPollers.map((poller) => ({
@@ -2435,6 +2454,35 @@ export default function Dashboard() {
     [],
   );
 
+
+  const fetchPollerAlerts = useCallback(async () => {
+    try {
+      const token = localStorage.getItem("centreon_auth_token");
+      const response = await fetch(`${BASE_API_URL}/api/centreon/poller-alerts`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) return;
+
+      const payload = await response.json();
+      const alerts = payload?.data?.result || [];
+
+      setPollerAlerts(alerts);
+
+      // If we have alerts, show the popup.
+      // If it clears, we can hide it automatically.
+      if (alerts.length > 0) {
+        setShowPollerPopup(true);
+      } else {
+        setShowPollerPopup(false);
+      }
+    } catch (error) {
+      console.error("Error fetching poller alerts:", error);
+    }
+  }, []);  
+
+
+
   const fetchPollerHosts = useCallback(
     async (pollerId, page = 1, limit = pollerHostLimit) => {
       try {
@@ -2559,6 +2607,7 @@ export default function Dashboard() {
 
     refreshDashboardData();
     fetchPollersRoster();
+    fetchPollerAlerts(); // ← NEW: Check for poller alerts on mount
 
     // Warm the Data Center caches during the initial load so tab
     // switches feel instant. `background: true` skips the spinner.
@@ -2568,6 +2617,7 @@ export default function Dashboard() {
     const heartbeat = setInterval(() => {
       refreshDashboardData();
       fetchPollersRoster();
+      fetchPollerAlerts(); // ← NEW: Poll for poller alerts every 5 min
 
       if (selectedPollerId) {
         fetchPollerHosts(selectedPollerId, pollerHostPage, pollerHostLimit);
@@ -2605,6 +2655,7 @@ export default function Dashboard() {
     navigate,
     fetchDataCenterHostGroups,
     fetchDashboardHostGroupsList,
+    fetchPollerAlerts,
   ]);
 
   useEffect(() => {
@@ -2693,6 +2744,9 @@ export default function Dashboard() {
       dataCenterRequestIdRef.current += 1;
       if (dataCenterRetryTimerRef.current) {
         clearTimeout(dataCenterRetryTimerRef.current);
+      }
+      if (pollersRetryTimerRef.current) {
+        clearTimeout(pollersRetryTimerRef.current);
       }
     };
   }, []);
@@ -3288,6 +3342,7 @@ export default function Dashboard() {
       });
 
       const token = localStorage.getItem("centreon_auth_token");
+      const username = localStorage.getItem("centreon_username") || "Dashboard User";
 
       const payload = {
         host: hostName,
@@ -3297,9 +3352,8 @@ export default function Dashboard() {
         hostAddress,
       };
 
-      if (customComment) {
-        payload.comment = customComment;
-      }
+      // Use custom comment if provided, otherwise default to "Acknowledged by [Username]"
+      payload.comment = customComment || `Acknowledged by ${username}`;
 
       const response = await fetch(`${BASE_API_URL}/api/centreon/acknowledge`, {
         method: "POST",
@@ -4326,7 +4380,97 @@ export default function Dashboard() {
             )}
           </div>
         )}
+        {showPollerPopup && pollerAlerts.length > 0 && (
+          <div
+            className="modal-overlay"
+            style={{ zIndex: 9999 }} // Ensure it stays on top
+            onClick={() => setShowPollerPopup(false)}
+          >
+            <div
+              className="modal-content"
+              onClick={(e) => e.stopPropagation()}
+              style={{ 
+                border: "2px solid #f85149", 
+                maxWidth: "700px",
+                position: "relative" // Needed for the X button to position correctly
+              }}
+            >
+              {/* ❌ The New Close Button */}
+              <button
+                onClick={() => setShowPollerPopup(false)}
+                style={{
+                  position: "absolute",
+                  top: "15px",
+                  right: "15px",
+                  background: "transparent",
+                  border: "none",
+                  color: "#8b949e",
+                  fontSize: "20px",
+                  cursor: "pointer",
+                  fontWeight: "bold"
+                }}
+                title="Close"
+              >
+                ✕
+              </button>
 
+              <h3 className="modal-title" style={{ color: "#f85149", display: "flex", alignItems: "center", gap: "10px", paddingRight: "30px" }}>
+                🚨 CENTREON_BE_POLLERS ALERT
+              </h3>
+
+              <p className="modal-subtitle" style={{ borderColor: "#f85149", background: "rgba(248, 81, 73, 0.1)" }}>
+                <strong>Attention:</strong> {pollerAlerts.length} PING service(s) are currently experiencing issues.
+              </p>
+
+              <div style={{ maxHeight: "300px", overflowY: "auto", marginBottom: "20px" }}>
+                <table className="services-table" style={{ fontSize: "12px" }}>
+                  <thead>
+                    <tr>
+                      <th>Service</th>
+                      <th>Status</th>
+                      <th>Output</th>
+                      <th style={{ textAlign: "center" }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pollerAlerts.map((alert, idx) => (
+                      <tr key={idx} className={`service-row-${alert.statusName?.toLowerCase()}`}>
+                        <td className="service-name">{alert.description}</td>
+                        <td>
+                          <span className={`status-text ${alert.statusName?.toLowerCase()}`}>
+                            {alert.statusName}
+                          </span>
+                        </td>
+                        <td className="service-output">{alert.output}</td>
+                        <td className="ack-cell">
+                          <button
+                            className="ack-btn ack-action-btn"
+                            onClick={() => {
+                              setPendingAck({
+                                hostName: alert.host?.name || "CENTREON_BE_POLLERS",
+                                serviceDescription: alert.description,
+                                hostId: alert.host?.id,
+                                serviceId: alert.id,
+                                // Extract IP from output if address is missing
+                                hostAddress: alert.host?.address || alert.host?.ip || extractIpFromText(alert.output),
+                                isPollerAlert: true, 
+                              });
+                              setAckComment("");
+                              setAckNotify(false);
+                              setShowAckModal(true);
+                            }}
+                          >
+                            ACK
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
         {location.pathname === "/pollers" && (
           <div className="page active">
             {!selectedPoller && (
@@ -4870,9 +5014,10 @@ export default function Dashboard() {
                   placeholder="Enter a comment for this acknowledgement..."
                   value={ackComment}
                   onChange={(e) => setAckComment(e.target.value)}
-                  rows="4"
+                  rows="3"
                 />
               </div>
+
 
               <div className="modal-actions">
                 <button
@@ -4888,12 +5033,12 @@ export default function Dashboard() {
 
                 <button
                   className="modal-btn modal-btn-confirm"
-                  onClick={() => {
+                  onClick={async () => {
                     if (pendingAck) {
-                      const comment =
-                        ackComment.trim() || "Acknowledged from GOC Dashboard";
+                      const username = localStorage.getItem("centreon_username") || "Dashboard User";
+                      const comment = ackComment.trim() || `Acknowledged by ${username}`;
 
-                      handleAcknowledge(
+                      await handleAcknowledge(
                         pendingAck.hostName,
                         pendingAck.serviceDescription,
                         pendingAck.hostId,
@@ -4901,6 +5046,12 @@ export default function Dashboard() {
                         pendingAck.hostAddress,
                         comment,
                       );
+
+                      // If it came from the Poller Alert popup, refresh the data and close the popup
+                      if (pendingAck.isPollerAlert) {
+                        fetchPollerAlerts();
+                        setShowPollerPopup(false); // <-- THIS CLOSES THE POPUP
+                      }
                     }
 
                     setShowAckModal(false);

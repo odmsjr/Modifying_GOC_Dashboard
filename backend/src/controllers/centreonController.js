@@ -1157,7 +1157,7 @@ const refreshPollerHostCountCache = async (req, monitoringServerMap) => {
     try {
         const countMap = {};
         const hostsByPoller = {};
-        const limit = 1000;
+        const limit = 1000; // Safe for hosts endpoint
         let page = 1;
         let counted = 0;
         let totalFromCentreon = 0;
@@ -1270,7 +1270,8 @@ const refreshHostGroupsCache = async (req) => {
 
     try {
         const allHostGroups = [];
-        const centreonPageLimit = 1000;
+        // Fetch in smaller batches (50 at a time) so Centreon doesn't crash with a 500 error
+        const centreonPageLimit = 50; 
         let centreonPage = 1;
         let fetchedGroups = 0;
         let totalGroupsFromCentreon = 0;
@@ -3871,6 +3872,45 @@ const getDataCenterHostGroupHosts = async (req, res, next) => {
     }
 };
 
+// ============================================================
+// POLLER INFRASTRUCTURE ALERTS
+// ============================================================
+// Checks specifically for critical or warning states on the
+// CENTREON_BE_POLLERS host to trigger a dashboard popup.
+
+const getPollerAlerts = async (req, res, next) => {
+    try {
+        // Only fetch unhandled services for this host
+        const search = {
+            "host.name": "CENTREON_BE_POLLERS",
+            "service.is_acknowledged": false
+        };
+
+        const params = new URLSearchParams({
+            search: JSON.stringify(search),
+            limit: "100",
+            page: "1"
+        });
+
+        const response = await centreonAxios.get(`/monitoring/services?${params.toString()}`, {
+            headers: getCentreonHeaders(req)
+        });
+
+        // Filter out "OK" services in JavaScript (safer than complex API searches)
+        const alerts = (response.data?.result || [])
+            .map(normalizeService)
+            .filter(s => [1, 2, 3].includes(s.statusCode));
+
+        return res.json({
+            success: true,
+            count: alerts.length,
+            data: { result: alerts }
+        });
+    } catch (error) {
+        return handleCentreonError(error, res, next);
+    }
+};
+
 
 
 // ============================================================
@@ -4380,5 +4420,6 @@ module.exports = {
     testMonitoringServers,
     getDataCenterHostGroups,
     getDataCenterHostServices,
-    getDataCenterHostGroupHosts
+    getDataCenterHostGroupHosts,
+    getPollerAlerts
 };

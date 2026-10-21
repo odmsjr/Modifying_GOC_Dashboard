@@ -9,6 +9,7 @@ router.get('/hosts/:id', centreonController.getHostById);
 
 // Poller endpoints
 router.get('/pollers', centreonController.getAllPollers);
+router.get('/poller-alerts', centreonController.getPollerAlerts);
 router.get('/pollers/:pollerId/hosts', centreonController.getPollerHosts);
 router.get('/pollers/:pollerId/services/summary', centreonController.getPollerServiceSummary);
 
