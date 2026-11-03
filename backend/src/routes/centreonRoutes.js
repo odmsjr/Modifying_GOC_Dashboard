@@ -26,6 +26,7 @@ router.post('/unacknowledge', centreonController.unacknowledgeService);
 router.get('/test-monitoring-servers', centreonController.testMonitoringServers);
 
 // Service endpoints
+router.get('/categories', centreonController.getServiceCategories);
 router.get('/services/search', centreonController.searchServicesGlobally);
 router.get('/services/status/summary', centreonController.getServiceStatusSummary);
 router.get('/services/status/global-summary', centreonController.getGlobalServiceStatusSummary);

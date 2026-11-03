@@ -998,6 +998,7 @@ export default function Dashboard() {
     service: "",
     poller: "all",
     dataCenter: "",
+    category: "",
   });
   const [showAllStatusesForPoller, setShowAllStatusesForPoller] =
     useState(true);
@@ -1065,6 +1066,7 @@ export default function Dashboard() {
 
   // --- POLLERS PAGE STATE ---
   const [cachedPollers, setCachedPollers] = useState([]);
+  const [categoryList, setCategoryList] = useState([]);
   const [pollerSearch, setPollerSearch] = useState("");
   const pollersRetryTimerRef = useRef(null);
   const [pollerPage, setPollerPage] = useState(1);
@@ -1437,12 +1439,13 @@ export default function Dashboard() {
     dashboardSearchActiveRef.current =
       location.pathname === "/dashboard" &&
       filters.poller === "all" &&
-      Boolean(debouncedHostSearch || debouncedServiceSearch);
+      Boolean(debouncedHostSearch || debouncedServiceSearch || filters.category);
   }, [
     location.pathname,
     filters.poller,
     debouncedHostSearch,
     debouncedServiceSearch,
+    filters.category, // <-- Added this
   ]);
 
   // ============================================================
@@ -1507,6 +1510,7 @@ export default function Dashboard() {
       serviceSearch = "",
       statusFilterParam = "unhandled",
       forceRefresh = false,
+      categoryParam = "", // <-- Add this
     ) => {
       const requestId = dashboardGlobalListRequestIdRef.current + 1;
       dashboardGlobalListRequestIdRef.current = requestId;
@@ -1541,6 +1545,10 @@ export default function Dashboard() {
 
         if (serviceSearch) {
           params.set("service", serviceSearch);
+        }
+
+        if (categoryParam) {
+          params.set("category", categoryParam);
         }
 
         if (forceRefresh) {
@@ -1590,7 +1598,7 @@ export default function Dashboard() {
           payload.meta?.cacheLoaded === false;
 
         if (payload.cached) {
-          const hasSearch = Boolean(hostSearch || serviceSearch);
+          const hasSearch = Boolean(hostSearch || serviceSearch || categoryParam);
 
           const countSource =
             hasSearch && payload.filteredCounts
@@ -2560,6 +2568,7 @@ export default function Dashboard() {
         debouncedServiceSearch,
         statusFilter,
         true,
+        filters.category, // <-- Pass it here
       );
     }
 
@@ -2608,6 +2617,15 @@ export default function Dashboard() {
     refreshDashboardData();
     fetchPollersRoster();
     fetchPollerAlerts(); // ← NEW: Check for poller alerts on mount
+
+
+    // Fetch dynamic categories from backend
+    fetch(`${BASE_API_URL}/api/centreon/categories`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("centreon_auth_token")}` }
+    })
+      .then(res => res.json())
+      .then(payload => setCategoryList(payload?.data?.result || []))
+      .catch(err => console.error("Error fetching categories:", err));
 
     // Warm the Data Center caches during the initial load so tab
     // switches feel instant. `background: true` skips the spinner.
@@ -2940,6 +2958,8 @@ export default function Dashboard() {
         debouncedHostSearch,
         debouncedServiceSearch,
         statusFilter,
+        false, // forceRefresh
+        filters.category, // <-- Pass it here
       );
     }
   }, [
@@ -2950,6 +2970,7 @@ export default function Dashboard() {
     debouncedHostSearch,
     debouncedServiceSearch,
     statusFilter,
+    filters.category, 
     fetchDashboardGlobalServiceList,
   ]);
 
@@ -3570,6 +3591,8 @@ export default function Dashboard() {
           debouncedHostSearch,
           debouncedServiceSearch,
           statusFilter,
+          false,
+          filters.category, // <-- Pass it here
         );
 
         return;
@@ -3834,6 +3857,25 @@ export default function Dashboard() {
                       {dashboardHostGroupsList.map((g) => (
                         <option key={g.id} value={g.id}>
                           {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="filter-input-group-compact">
+                    <label>CATEGORY</label>
+                    <select
+                      className="filter-select-compact"
+                      value={filters.category}
+                      onChange={(e) => {
+                        setFilters((f) => ({ ...f, category: e.target.value }));
+                        setServicePage(1);
+                      }}
+                    >
+                      <option value="">All Categories</option>
+                      {categoryList.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
                         </option>
                       ))}
                     </select>
