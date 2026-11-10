@@ -14,6 +14,14 @@ import cevaLogo from "../assets/CEVA.png";
 const BASE_API_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
+const CATEGORY_REGEX = {
+  mssql_db: /CEVA MS SQL CONNECTION TIME|MS SQL/i,
+  mysql_db: /CEVA MySQL/i,
+  oracle_db: /CEVA ORACLE/i,
+  postgres_db:
+    /POSTGRES SERVICE|POSTGRES.*LONG RUNNING QUERY|POSTGRES LOCKS|POSTGRES LAST VACUUM|POSTGRES HIT RATIO|POSTGRES DISK SPACE|POSTGRES CUSTOM SSH HOT STANDBY|POSTGRES CUSTOM SNMP HOT STANDBY|POSTGRES CUSTOM HOT STANDBY|POSTGRES BACKENDS CONNECTION|POSTGRES DR LAST VACUUM|POSTGRES SQL STATEMENT QUERY/i,
+};
+
 const FilterCombobox = ({
   label,
   value,
@@ -248,8 +256,6 @@ const DataCenterContent = ({
   setAckComment,
   setShowAckModal,
 }) => {
-
-
   const selectedHosts = selectedGroup?.hosts || [];
   const [hostGroupSort, setHostGroupSort] = useState("default");
 
@@ -330,8 +336,7 @@ const DataCenterContent = ({
     );
   }
 
-
-    if (hostServicesView) {
+  if (hostServicesView) {
     const typeLabel =
       {
         critical: "Critical",
@@ -395,9 +400,7 @@ const DataCenterContent = ({
               setHostServicesPage(1);
             }}
           >
-            <div className="stat-number">
-              {hostServicesCounts.warning || 0}
-            </div>
+            <div className="stat-number">{hostServicesCounts.warning || 0}</div>
             <div className="stat-label">Warning Services</div>
           </div>
           <div
@@ -410,9 +413,7 @@ const DataCenterContent = ({
               setHostServicesPage(1);
             }}
           >
-            <div className="stat-number">
-              {hostServicesCounts.unknown || 0}
-            </div>
+            <div className="stat-number">{hostServicesCounts.unknown || 0}</div>
             <div className="stat-label">Unknown Services</div>
           </div>
         </div>
@@ -486,10 +487,7 @@ const DataCenterContent = ({
             className="data-center-page-btn"
             onClick={() =>
               setHostServicesPage((current) =>
-                Math.min(
-                  hostServicesMeta.totalPages || 1,
-                  current + 1,
-                ),
+                Math.min(hostServicesMeta.totalPages || 1, current + 1),
               )
             }
             disabled={
@@ -1049,6 +1047,11 @@ export default function Dashboard() {
   // Prevent stale search/status requests from overwriting newer results.
   const dashboardGlobalListRequestIdRef = useRef(0);
   const dashboardSearchActiveRef = useRef(false);
+
+  // 👇 ADD THIS: Frontend cache to prevent re-fetching on every click
+  const listCacheRef = useRef(new Map());
+  window.debugListCache = listCacheRef.current;
+
   const [serviceFilterOptions, setServiceFilterOptions] = useState({
     hosts: [],
     services: [],
@@ -1062,7 +1065,6 @@ export default function Dashboard() {
   const [cachedWarning, setCachedWarning] = useState([]);
   const [cachedUnknown, setCachedUnknown] = useState([]);
   const [cachedSearchResults, setCachedSearchResults] = useState([]);
-
 
   // --- POLLERS PAGE STATE ---
   const [cachedPollers, setCachedPollers] = useState([]);
@@ -1157,9 +1159,10 @@ export default function Dashboard() {
   const [dataCenterDetailLimit, setDataCenterDetailLimit] = useState(20);
   const [dataCenterDetailFilter, setDataCenterDetailFilter] = useState("all");
 
-   // --- DASHBOARD DATA CENTER FILTER ---
+  // --- DASHBOARD DATA CENTER FILTER ---
   const [dashboardHostGroupsList, setDashboardHostGroupsList] = useState([]);
-  const [dashboardHostGroupsLoading, setDashboardHostGroupsLoading] = useState(false);
+  const [dashboardHostGroupsLoading, setDashboardHostGroupsLoading] =
+    useState(false);
 
   const [dashboardDcHosts, setDashboardDcHosts] = useState([]);
   const [dashboardDcHostsCounts, setDashboardDcHostsCounts] = useState({
@@ -1171,8 +1174,7 @@ export default function Dashboard() {
     allActiveIssues: 0,
   });
   const [dashboardDcHostsLoading, setDashboardDcHostsLoading] = useState(false);
-  const dashboardDcHostsRequestIdRef = useRef(0); 
-
+  const dashboardDcHostsRequestIdRef = useRef(0);
 
   const [selectedDashboardDcHost, setSelectedDashboardDcHost] = useState(null);
   // Shape: { id, name, alias } or null
@@ -1196,23 +1198,24 @@ export default function Dashboard() {
       allServices: 0,
       filtered: 0,
     });
-  const [dashboardDcHostServicesServiceFilter, setDashboardDcHostServicesServiceFilter] =
-    useState("");
+  const [
+    dashboardDcHostServicesServiceFilter,
+    setDashboardDcHostServicesServiceFilter,
+  ] = useState("");
   const [dashboardDcHostServicesPage, setDashboardDcHostServicesPage] =
     useState(1);
   const [dashboardDcHostServicesLimit, setDashboardDcHostServicesLimit] =
     useState(20);
   const [dashboardDcHostServicesOptions, setDashboardDcHostServicesOptions] =
     useState({ services: [] });
-  const dashboardDcHostServicesRequestIdRef = useRef(0);  
-
+  const dashboardDcHostServicesRequestIdRef = useRef(0);
 
   const [dataCenterLoading, setDataCenterLoading] = useState(false);
   const [dataCenterError, setDataCenterError] = useState(null);
   const dataCenterRequestIdRef = useRef(0);
   const dataCenterRetryTimerRef = useRef(null);
 
-    // --- DATA CENTER: HOST SERVICES VIEW ---
+  // --- DATA CENTER: HOST SERVICES VIEW ---
   const [dataCenterHostServicesView, setDataCenterHostServicesView] =
     useState(null);
   // Shape: { hostId, hostName, type } or null
@@ -1220,13 +1223,12 @@ export default function Dashboard() {
   const [dataCenterHostServices, setDataCenterHostServices] = useState([]);
   const [dataCenterHostServicesLoading, setDataCenterHostServicesLoading] =
     useState(false);
-  const [dataCenterHostServicesMeta, setDataCenterHostServicesMeta] =
-    useState({
-      page: 1,
-      limit: 20,
-      total: 0,
-      totalPages: 1,
-    });
+  const [dataCenterHostServicesMeta, setDataCenterHostServicesMeta] = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 1,
+  });
   const [dataCenterHostServicesCounts, setDataCenterHostServicesCounts] =
     useState({
       allActiveIssues: 0,
@@ -1236,8 +1238,10 @@ export default function Dashboard() {
       allServices: 0,
       filtered: 0,
     });
-  const [dataCenterHostServicesServiceFilter, setDataCenterHostServicesServiceFilter] =
-    useState("");
+  const [
+    dataCenterHostServicesServiceFilter,
+    setDataCenterHostServicesServiceFilter,
+  ] = useState("");
   const [dataCenterHostServicesPage, setDataCenterHostServicesPage] =
     useState(1);
   const [dataCenterHostServicesLimit, setDataCenterHostServicesLimit] =
@@ -1438,8 +1442,10 @@ export default function Dashboard() {
   useEffect(() => {
     dashboardSearchActiveRef.current =
       location.pathname === "/dashboard" &&
-      filters.poller === "all" &&
-      Boolean(debouncedHostSearch || debouncedServiceSearch || filters.category);
+      (filters.poller !== "all" ||
+        Boolean(
+          debouncedHostSearch || debouncedServiceSearch || filters.category,
+        ));
   }, [
     location.pathname,
     filters.poller,
@@ -1456,11 +1462,18 @@ export default function Dashboard() {
       try {
         const token = localStorage.getItem("centreon_auth_token");
 
+        // 👇 Pass the selected category to the backend
+        const categoryParam = filters.category
+          ? `?category=${encodeURIComponent(filters.category)}`
+          : "";
+
         const response = await fetch(
-          `${BASE_API_URL}/api/centreon/services/status/global-summary`,
+          `${BASE_API_URL}/api/centreon/services/status/global-summary${categoryParam}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
+              "x-user-name":
+                localStorage.getItem("centreon_username") || "Dashboard User",
             },
           },
         );
@@ -1518,17 +1531,25 @@ export default function Dashboard() {
       const isLatestRequest = () =>
         dashboardGlobalListRequestIdRef.current === requestId;
 
+      // 👇 CREATE A CACHE KEY BASED ON ALL FILTERS
+      const cacheKey = `${type}-${page}-${limit}-${hostSearch}-${serviceSearch}-${statusFilterParam}-${categoryParam}`;
+
+      // 👇 IF WE ALREADY HAVE THIS DATA AND AREN'T FORCE REFRESHING, USE IT INSTANTLY
+      if (!forceRefresh && listCacheRef.current.has(cacheKey)) {
+        const cachedData = listCacheRef.current.get(cacheKey);
+        setDashboardGlobalServices(cachedData.services);
+        setDashboardGlobalMeta(cachedData.meta);
+        if (cachedData.counts) {
+          setGlobalDashboardCounts(cachedData.counts);
+        }
+        setIsLoadingDashboardGlobalList(false);
+        return;
+      }
+
+      let shouldRetryList = false; // 👈 Declare this outside the try block
+
       try {
         setIsLoadingDashboardGlobalList(true);
-
-        // Clear stale table data while switching cards/status.
-        setDashboardGlobalServices([]);
-        setDashboardGlobalMeta({
-          page,
-          limit,
-          total: 0,
-          totalPages: 1,
-        });
 
         const token = localStorage.getItem("centreon_auth_token");
 
@@ -1554,12 +1575,13 @@ export default function Dashboard() {
         if (forceRefresh) {
           params.set("forceRefresh", "1");
         }
-
         const response = await fetch(
           `${BASE_API_URL}/api/centreon/services/status/global-summary/list?${params.toString()}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
+              "x-user-name":
+                localStorage.getItem("centreon_username") || "Dashboard User", // 👈 ADD THIS
             },
           },
         );
@@ -1580,25 +1602,26 @@ export default function Dashboard() {
         const uniqueMap = new Map();
 
         rawResults.forEach((service) => {
-          const serviceKey = String(
-            service.id ??
-              service.service_id ??
-              `${service.host?.id || service.host?.name || "host"}-${service.description || service.display_name || "service"}`,
-          );
+          // Combine Host ID and Service ID so we don't drop duplicate services on different hosts
+          const serviceKey =
+            service.resource_uuid ||
+            `${service.host?.id || service.host?.name || "host"}-${service.id || service.description || "service"}`;
 
           uniqueMap.set(serviceKey, service);
         });
 
         const uniqueResults = Array.from(uniqueMap.values());
 
-        const shouldRetryList =
+        shouldRetryList =
           payload.refreshing === true ||
           payload.meta?.cacheRefreshing === true ||
           payload.cached === false ||
           payload.meta?.cacheLoaded === false;
 
         if (payload.cached) {
-          const hasSearch = Boolean(hostSearch || serviceSearch || categoryParam);
+          const hasSearch = Boolean(
+            hostSearch || serviceSearch || categoryParam,
+          );
 
           const countSource =
             hasSearch && payload.filteredCounts
@@ -1626,6 +1649,29 @@ export default function Dashboard() {
           },
         );
 
+        // 👇 Only save to cache if we actually have data or if the backend is done refreshing.
+        // This prevents saving a 0-result response during the initial warmup.
+        if (uniqueResults.length > 0 || !shouldRetryList) {
+          const hasSearch = Boolean(
+            hostSearch || serviceSearch || categoryParam,
+          );
+          const countSource =
+            hasSearch && payload.filteredCounts
+              ? payload.filteredCounts
+              : payload.counts;
+
+          listCacheRef.current.set(cacheKey, {
+            services: uniqueResults,
+            meta: payload.meta || {
+              page,
+              limit,
+              total: uniqueResults.length,
+              totalPages: 1,
+            },
+            counts: countSource,
+          });
+        }
+
         if (shouldRetryList) {
           setTimeout(() => {
             if (isLatestRequest()) {
@@ -1636,24 +1682,14 @@ export default function Dashboard() {
                 hostSearch,
                 serviceSearch,
                 statusFilterParam,
+                true,
+                categoryParam,
               );
             }
           }, 10000);
         }
-      } catch (error) {
-        if (!isLatestRequest()) {
-          return;
-        }
-
-        console.error("Error fetching dashboard global service list:", error);
-
-        setDashboardGlobalServices([]);
-        setDashboardGlobalMeta({
-          page,
-          limit,
-          total: 0,
-          totalPages: 1,
-        });
+      } catch {
+        // ...
       } finally {
         if (isLatestRequest()) {
           setIsLoadingDashboardGlobalList(false);
@@ -1664,7 +1700,13 @@ export default function Dashboard() {
   );
 
   const fetchDashboardPollerServices = useCallback(
-    async (pollerId, type = "all", page = 1, limit = 100, statusFilterParam = "unhandled") => {
+    async (
+      pollerId,
+      type = "all",
+      page = 1,
+      limit = 100,
+      statusFilterParam = "unhandled",
+    ) => {
       if (!pollerId) return;
 
       const requestId = dashboardGlobalListRequestIdRef.current + 1;
@@ -1674,8 +1716,6 @@ export default function Dashboard() {
 
       try {
         setIsLoadingDashboardGlobalList(true);
-        setDashboardGlobalServices([]);
-        setDashboardGlobalMeta({ page, limit, total: 0, totalPages: 1 });
 
         const token = localStorage.getItem("centreon_auth_token");
         const params = new URLSearchParams({
@@ -1699,7 +1739,9 @@ export default function Dashboard() {
 
         if (!isLatestRequest()) return;
 
-        const normalizedResults = (payload?.data?.result || []).map(normalizeService);
+        const normalizedResults = (payload?.data?.result || []).map(
+          normalizeService,
+        );
 
         setDashboardGlobalServices(normalizedResults);
         setDashboardGlobalMeta(
@@ -2024,27 +2066,16 @@ export default function Dashboard() {
       );
     }
     if (currentTableType === "warning") {
-      return dashboardDcHosts.filter(
-        (h) => Number(h.counts?.warning || 0) > 0,
-      );
+      return dashboardDcHosts.filter((h) => Number(h.counts?.warning || 0) > 0);
     }
     if (currentTableType === "unknown") {
-      return dashboardDcHosts.filter(
-        (h) => Number(h.counts?.unknown || 0) > 0,
-      );
+      return dashboardDcHosts.filter((h) => Number(h.counts?.unknown || 0) > 0);
     }
     return dashboardDcHosts;
   }, [dashboardDcHosts, currentTableType]);
 
-
   const fetchDataCenterHostServices = useCallback(
-    async ({
-      hostId,
-      type = "all",
-      page = 1,
-      limit = 20,
-      service = "",
-    }) => {
+    async ({ hostId, type = "all", page = 1, limit = 20, service = "" }) => {
       if (!hostId) return;
 
       const requestId = dataCenterHostServicesRequestIdRef.current + 1;
@@ -2136,10 +2167,7 @@ export default function Dashboard() {
         }
       } catch (error) {
         if (!isLatestRequest()) return;
-        console.error(
-          "Error loading Data Center host services:",
-          error,
-        );
+        console.error("Error loading Data Center host services:", error);
         setDataCenterHostServices([]);
         setDataCenterHostServicesMeta({
           page,
@@ -2156,13 +2184,24 @@ export default function Dashboard() {
     [dataCenterStatusFilter],
   );
 
-
   // ============================================================
   // DASHBOARD FETCH
   // ============================================================
   const refreshDashboardData = useCallback(async () => {
+    const isDashboardFiltered =
+      location.pathname === "/dashboard" &&
+      (filters.poller !== "all" ||
+        Boolean(filters.dataCenter) ||
+        Boolean(selectedDashboardDcHost));
+
+    if (isDashboardFiltered) {
+      setLastUpdated(new Date().toLocaleTimeString());
+      return;
+    }
     const usingDashboardGlobalCache =
       location.pathname === "/dashboard" && filters.poller === "all";
+    const usingDashboardPoller =
+      location.pathname === "/dashboard" && filters.poller !== "all";
 
     const hasDashboardSearch = Boolean(
       debouncedHostSearch || debouncedServiceSearch,
@@ -2177,7 +2216,8 @@ export default function Dashboard() {
 
       fetchGlobalDashboardSummary(
         statusFilter === "unhandled" &&
-          !(usingDashboardGlobalCache && hasDashboardSearch),
+          !(usingDashboardGlobalCache && hasDashboardSearch) &&
+          !usingDashboardPoller,
       );
 
       const token = localStorage.getItem("centreon_auth_token");
@@ -2266,8 +2306,6 @@ export default function Dashboard() {
       );
 
       setLastUpdated(new Date().toLocaleTimeString());
-
-
     } catch (e) {
       console.error("Failed syncing infrastructure metrics:", e);
     } finally {
@@ -2462,13 +2500,15 @@ export default function Dashboard() {
     [],
   );
 
-
   const fetchPollerAlerts = useCallback(async () => {
     try {
       const token = localStorage.getItem("centreon_auth_token");
-      const response = await fetch(`${BASE_API_URL}/api/centreon/poller-alerts`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(
+        `${BASE_API_URL}/api/centreon/poller-alerts`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
 
       if (!response.ok) return;
 
@@ -2487,9 +2527,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error("Error fetching poller alerts:", error);
     }
-  }, []);  
-
-
+  }, []);
 
   const fetchPollerHosts = useCallback(
     async (pollerId, page = 1, limit = pollerHostLimit) => {
@@ -2561,21 +2599,18 @@ export default function Dashboard() {
       !filters.dataCenter
     ) {
       fetchDashboardGlobalServiceList(
-        currentTableType,
-        servicePage,
-        serviceLimit,
+        "all",
+        1,
+        999999,
         debouncedHostSearch,
         debouncedServiceSearch,
         statusFilter,
         true,
-        filters.category, // <-- Pass it here
+        "",
       );
     }
 
-    if (
-      location.pathname === "/dashboard" &&
-      filters.dataCenter
-    ) {
+    if (location.pathname === "/dashboard" && filters.dataCenter) {
       fetchDashboardHostGroupsList();
       fetchDashboardDcHosts({
         hostGroupId: filters.dataCenter,
@@ -2618,14 +2653,15 @@ export default function Dashboard() {
     fetchPollersRoster();
     fetchPollerAlerts(); // ← NEW: Check for poller alerts on mount
 
-
     // Fetch dynamic categories from backend
     fetch(`${BASE_API_URL}/api/centreon/categories`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem("centreon_auth_token")}` }
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("centreon_auth_token")}`,
+      },
     })
-      .then(res => res.json())
-      .then(payload => setCategoryList(payload?.data?.result || []))
-      .catch(err => console.error("Error fetching categories:", err));
+      .then((res) => res.json())
+      .then((payload) => setCategoryList(payload?.data?.result || []))
+      .catch((err) => console.error("Error fetching categories:", err));
 
     // Warm the Data Center caches during the initial load so tab
     // switches feel instant. `background: true` skips the spinner.
@@ -2656,7 +2692,7 @@ export default function Dashboard() {
     }, 300000);
 
     return () => clearInterval(heartbeat);
-}, [
+  }, [
     refreshDashboardData,
     fetchPollersRoster,
     fetchPollerHosts,
@@ -2682,7 +2718,6 @@ export default function Dashboard() {
     }
   }, [location.pathname, fetchDataCenterHostGroups]);
 
-
   // Load the host groups list once when landing on the Dashboard
   useEffect(() => {
     if (location.pathname === "/dashboard") {
@@ -2693,10 +2728,7 @@ export default function Dashboard() {
   // When a Data Center is selected, fetch its hosts.
   // Re-fetch when poller or host-search changes.
   useEffect(() => {
-    if (
-      location.pathname === "/dashboard" &&
-      filters.dataCenter
-    ) {
+    if (location.pathname === "/dashboard" && filters.dataCenter) {
       fetchDashboardDcHosts({
         hostGroupId: filters.dataCenter,
         poller: filters.poller,
@@ -2711,12 +2743,8 @@ export default function Dashboard() {
     fetchDashboardDcHosts,
   ]);
 
-
   useEffect(() => {
-    if (
-      location.pathname === "/dashboard" &&
-      selectedDashboardDcHost?.id
-    ) {
+    if (location.pathname === "/dashboard" && selectedDashboardDcHost?.id) {
       fetchDashboardDcHostServices({
         hostId: selectedDashboardDcHost.id,
         type: currentTableType,
@@ -2735,11 +2763,8 @@ export default function Dashboard() {
     fetchDashboardDcHostServices,
   ]);
 
-    useEffect(() => {
-    if (
-      location.pathname === "/datacenter" &&
-      dataCenterHostServicesView
-    ) {
+  useEffect(() => {
+    if (location.pathname === "/datacenter" && dataCenterHostServicesView) {
       fetchDataCenterHostServices({
         hostId: dataCenterHostServicesView.hostId,
         type: dataCenterHostServicesView.type,
@@ -2769,7 +2794,7 @@ export default function Dashboard() {
     };
   }, []);
 
-    useEffect(() => {
+  useEffect(() => {
     return () => {
       dataCenterRequestIdRef.current += 1;
       dataCenterHostServicesRequestIdRef.current += 1;
@@ -2839,7 +2864,6 @@ export default function Dashboard() {
     const match = cachedPollers.find((p) => p.Poller === filters.poller);
     return match?.poller_id ?? null;
   }, [dashboardPollerMode, cachedPollers, filters.poller]);
-
 
   useEffect(() => {
     if (!dashboardGlobalListMode) {
@@ -2952,47 +2976,22 @@ export default function Dashboard() {
   useEffect(() => {
     if (dashboardGlobalListMode) {
       fetchDashboardGlobalServiceList(
-        currentTableType,
-        servicePage,
-        serviceLimit,
+        "all",
+        1,            // Always fetch page 1
+        999999,       // 👈 Fetch ALL rows from the backend
         debouncedHostSearch,
         debouncedServiceSearch,
         statusFilter,
-        false, // forceRefresh
-        filters.category, // <-- Pass it here
+        false,
+        "",
       );
     }
   }, [
     dashboardGlobalListMode,
-    currentTableType,
-    servicePage,
-    serviceLimit,
     debouncedHostSearch,
     debouncedServiceSearch,
     statusFilter,
-    filters.category, 
     fetchDashboardGlobalServiceList,
-  ]);
-
-
-  useEffect(() => {
-    if (dashboardPollerMode && selectedDashboardPollerId) {
-      fetchDashboardPollerServices(
-        selectedDashboardPollerId,
-        currentTableType,
-        servicePage,
-        serviceLimit,
-        statusFilter,
-      );
-    }
-  }, [
-    dashboardPollerMode,
-    selectedDashboardPollerId,
-    currentTableType,
-    servicePage,
-    serviceLimit,
-    statusFilter,
-    fetchDashboardPollerServices,
   ]);
 
   const filteredPollers = useMemo(() => {
@@ -3024,73 +3023,6 @@ export default function Dashboard() {
     () => cachedPollers.map((p) => p.Poller).filter(Boolean),
     [cachedPollers],
   );
-
-  const displayCounts = useMemo(() => {
-    if (location.pathname === "/pollers" && selectedPollerId) {
-      return pollerServiceCounts;
-    }
-
-    // Dashboard + host services view open → show host counts
-    if (
-      location.pathname === "/dashboard" &&
-      selectedDashboardDcHost?.id
-    ) {
-      return {
-        allActiveIssues: dashboardDcHostServicesCounts.allActiveIssues || 0,
-        critical: dashboardDcHostServicesCounts.critical || 0,
-        warning: dashboardDcHostServicesCounts.warning || 0,
-        unknown: dashboardDcHostServicesCounts.unknown || 0,
-      };
-    }
-
-    // Dashboard + DC filter selected (hosts view) → show DC counts
-    if (location.pathname === "/dashboard" && filters.dataCenter) {
-      return {
-        allActiveIssues: dashboardDcHostsCounts.allActiveIssues || 0,
-        critical: dashboardDcHostsCounts.critical || 0,
-        warning: dashboardDcHostsCounts.warning || 0,
-        unknown: dashboardDcHostsCounts.unknown || 0,
-      };
-    }
-
-    if (location.pathname === "/dashboard") {
-      return {
-        allActiveIssues:
-          globalDashboardCounts.allActiveIssues ?? counts.allActiveIssues,
-        critical: globalDashboardCounts.critical ?? counts.critical,
-        warning: globalDashboardCounts.warning ?? counts.warning,
-        unknown: globalDashboardCounts.unknown ?? counts.unknown,
-      };
-    }
-
-    if (activePollerContext !== "all") {
-      const services = [
-        ...cachedCritical,
-        ...cachedWarning,
-        ...cachedUnknown,
-      ].filter((service) => service.poller_name === activePollerContext);
-
-      return buildServiceCounts(services, statusFilter);
-    }
-
-    return counts;
-  }, [
-    location.pathname,
-    selectedPollerId,
-    pollerServiceCounts,
-    activePollerContext,
-    globalDashboardCounts,
-    counts,
-    cachedCritical,
-    cachedWarning,
-    cachedUnknown,
-    buildServiceCounts,
-    filters.dataCenter,
-    dashboardDcHostsCounts,
-    selectedDashboardDcHost,
-    dashboardDcHostServicesCounts,
-    statusFilter,
-  ]);
 
   const isSearchMode = Boolean(debouncedHostSearch || debouncedServiceSearch);
 
@@ -3160,10 +3092,34 @@ export default function Dashboard() {
   ]);
 
   const dashboardTableServices = useMemo(() => {
-    const source =
-      dashboardGlobalListMode || dashboardPollerMode
-        ? dashboardGlobalServices
-        : filteredServices;
+    let source = dashboardGlobalListMode || dashboardPollerMode
+      ? dashboardGlobalServices
+      : filteredServices;
+
+    // Filter by Poller (from previous fix)
+    if (dashboardPollerMode && filters.poller !== "all") {
+      source = source.filter(
+        (service) => service.poller_name === filters.poller
+      );
+    }
+
+    if (currentTableType === "critical") {
+      source = source.filter((service) => service.statusCode === 2);
+    } else if (currentTableType === "warning") {
+      source = source.filter((service) => service.statusCode === 1);
+    } else if (currentTableType === "unknown") {
+      source = source.filter((service) => service.statusCode === 3);
+    }
+
+    if (filters.category && CATEGORY_REGEX[filters.category]) {
+      const regex = CATEGORY_REGEX[filters.category];
+      source = source.filter((service) => {
+        const description = String(
+          service.description || service.display_name || "",
+        );
+        return regex.test(description);
+      });
+    }
 
     return source.filter((service) => {
       const acknowledged = isServiceAcknowledged(service);
@@ -3174,11 +3130,136 @@ export default function Dashboard() {
   }, [
     dashboardGlobalListMode,
     dashboardPollerMode,
+    filters.poller,
+    currentTableType,
+    filters.category,
     dashboardGlobalServices,
     filteredServices,
     statusFilter,
     isServiceAcknowledged,
   ]);
+
+  const localCardCounts = useMemo(() => {
+    if (
+      location.pathname !== "/dashboard" ||
+      (!dashboardGlobalListMode && !dashboardPollerMode)
+    ) {
+      return null;
+    }
+
+    let source = dashboardGlobalServices;
+
+    if (filters.poller !== "all") {
+      source = source.filter(
+        (service) => service.poller_name === filters.poller,
+      );
+    }
+
+    if (filters.category && CATEGORY_REGEX[filters.category]) {
+      const regex = CATEGORY_REGEX[filters.category];
+      source = source.filter((service) => {
+        const description = String(
+          service.description || service.display_name || "",
+        );
+        return regex.test(description);
+      });
+    }
+
+    source = source.filter((service) => {
+      const acknowledged = isServiceAcknowledged(service);
+      if (statusFilter === "acknowledged") return acknowledged;
+      if (statusFilter === "all") return true;
+      return !acknowledged;
+    });
+
+    return {
+      allActiveIssues: source.length,
+      critical: source.filter((service) => service.statusCode === 2).length,
+      warning: source.filter((service) => service.statusCode === 1).length,
+      unknown: source.filter((service) => service.statusCode === 3).length,
+    };
+  }, [
+    location.pathname,
+    dashboardGlobalListMode,
+    dashboardPollerMode,
+    dashboardGlobalServices,
+    filters.poller,
+    filters.category,
+    statusFilter,
+    isServiceAcknowledged,
+  ]);
+
+  const displayCounts = useMemo(() => {
+    if (location.pathname === "/pollers" && selectedPollerId) {
+      return pollerServiceCounts;
+    }
+
+    if (location.pathname === "/dashboard" && selectedDashboardDcHost?.id) {
+      return {
+        allActiveIssues: dashboardDcHostServicesCounts.allActiveIssues || 0,
+        critical: dashboardDcHostServicesCounts.critical || 0,
+        warning: dashboardDcHostServicesCounts.warning || 0,
+        unknown: dashboardDcHostServicesCounts.unknown || 0,
+      };
+    }
+
+    if (location.pathname === "/dashboard" && filters.dataCenter) {
+      return {
+        allActiveIssues: dashboardDcHostsCounts.allActiveIssues || 0,
+        critical: dashboardDcHostsCounts.critical || 0,
+        warning: dashboardDcHostsCounts.warning || 0,
+        unknown: dashboardDcHostsCounts.unknown || 0,
+      };
+    }
+
+    if (location.pathname === "/dashboard" && localCardCounts) {
+      return localCardCounts;
+    }
+
+    if (location.pathname === "/dashboard") {
+      return {
+        allActiveIssues:
+          globalDashboardCounts.allActiveIssues ?? counts.allActiveIssues,
+        critical: globalDashboardCounts.critical ?? counts.critical,
+        warning: globalDashboardCounts.warning ?? counts.warning,
+        unknown: globalDashboardCounts.unknown ?? counts.unknown,
+      };
+    }
+
+    if (activePollerContext !== "all") {
+      const services = [
+        ...cachedCritical,
+        ...cachedWarning,
+        ...cachedUnknown,
+      ].filter((service) => service.poller_name === activePollerContext);
+
+      return buildServiceCounts(services, statusFilter);
+    }
+
+    return counts;
+  }, [
+    location.pathname,
+    selectedPollerId,
+    pollerServiceCounts,
+    activePollerContext,
+    globalDashboardCounts,
+    counts,
+    cachedCritical,
+    cachedWarning,
+    cachedUnknown,
+    buildServiceCounts,
+    filters.dataCenter,
+    dashboardDcHostsCounts,
+    selectedDashboardDcHost,
+    dashboardDcHostServicesCounts,
+    statusFilter,
+    localCardCounts,
+  ]);
+
+  const paginatedDashboardServices = useMemo(() => {
+    const start = (servicePage - 1) * serviceLimit;
+    return dashboardTableServices.slice(start, start + serviceLimit);
+  }, [dashboardTableServices, servicePage, serviceLimit]);
 
   const filteredPollerServices = useMemo(() => {
     return pollerServices;
@@ -3188,18 +3269,30 @@ export default function Dashboard() {
   // PAGINATION HELPERS
   // ============================================================
   const totalPages = useMemo(() => {
-    if (dashboardGlobalListMode) {
-      return Math.max(1, dashboardGlobalMeta.totalPages || 1);
+    if (dashboardGlobalListMode || dashboardPollerMode) {
+      // 👈 Calculate total pages locally based on the filtered array
+      return Math.max(1, Math.ceil(dashboardTableServices.length / serviceLimit));
     }
-
     return Math.max(1, Math.ceil((serviceMeta.total || 0) / serviceLimit));
   }, [
     dashboardGlobalListMode,
-    dashboardGlobalMeta.totalPages,
+    dashboardPollerMode,
+    dashboardTableServices.length, // 👈 Added
     serviceMeta.total,
     serviceLimit,
   ]);
 
+  const visiblePageNumbers = useMemo(() => {
+    const pages = [];
+    const start = Math.max(1, servicePage - 2);
+    const end = Math.min(totalPages, servicePage + 2);
+
+    for (let page = start; page <= end; page++) {
+      pages.push(page);
+    }
+
+    return pages;
+  }, [servicePage, totalPages]);
 
   const goToPage = (page) => {
     const safePage = Math.min(Math.max(page, 1), totalPages);
@@ -3363,7 +3456,8 @@ export default function Dashboard() {
       });
 
       const token = localStorage.getItem("centreon_auth_token");
-      const username = localStorage.getItem("centreon_username") || "Dashboard User";
+      const username =
+        localStorage.getItem("centreon_username") || "Dashboard User";
 
       const payload = {
         host: hostName,
@@ -3422,10 +3516,10 @@ export default function Dashboard() {
 
       setLastUpdated(new Date().toLocaleTimeString());
 
-      /*
-       * Global Dashboard:
-       * Reload the current severity, page, and search.
-       */
+      // Invalidate cache for this view
+      listCacheRef.current.clear();
+
+      // Refetch the correct data set so counts + pagination stay in sync
       if (dashboardGlobalListMode) {
         await fetchDashboardGlobalServiceList(
           currentTableType,
@@ -3434,16 +3528,23 @@ export default function Dashboard() {
           debouncedHostSearch,
           debouncedServiceSearch,
           statusFilter,
+          true, // forceRefresh — bypass cache right after a mutation
+          filters.category,
         );
-
         return;
       }
 
-      /*
-       * Pollers page:
-       * Reload the selected Poller so service state and local
-       * Poller counts remain synchronized.
-       */
+      if (dashboardPollerMode) {
+        await fetchDashboardPollerServices(
+          selectedDashboardPollerId,
+          currentTableType,
+          servicePage,
+          serviceLimit,
+          statusFilter,
+        );
+        return;
+      }
+
       if (location.pathname === "/pollers" && selectedPollerId) {
         await fetchPollerServiceSummary({
           pollerId: selectedPollerId,
@@ -3453,18 +3554,10 @@ export default function Dashboard() {
           host: pollerServiceFilters.host,
           service: pollerServiceFilters.service,
         });
-
         return;
       }
 
-      /*
-       * Dashboard with Data Center host services open:
-       * Reload the host services list.
-       */
-      if (
-        location.pathname === "/dashboard" &&
-        selectedDashboardDcHost?.id
-      ) {
+      if (location.pathname === "/dashboard" && selectedDashboardDcHost?.id) {
         await fetchDashboardDcHostServices({
           hostId: selectedDashboardDcHost.id,
           type: currentTableType,
@@ -3475,10 +3568,6 @@ export default function Dashboard() {
         return;
       }
 
-      /*
-       * Dashboard with a specific Poller filter:
-       * Reload the normal Dashboard data.
-       */
       await refreshDashboardData();
     } catch (error) {
       console.error("Failed to run safe exception acknowledgment:", error);
@@ -3562,27 +3651,8 @@ export default function Dashboard() {
 
       setLastUpdated(new Date().toLocaleTimeString());
 
-      /*
-       * Pollers is currently where acknowledged services
-       * can be unacknowledged. Reload the selected Poller.
-       */
-      if (location.pathname === "/pollers" && selectedPollerId) {
-        await fetchPollerServiceSummary({
-          pollerId: selectedPollerId,
-          type: currentTableType,
-          page: pollerServicePage,
-          limit: pollerServiceLimit,
-          host: pollerServiceFilters.host,
-          service: pollerServiceFilters.service,
-        });
+      listCacheRef.current.clear();
 
-        return;
-      }
-
-      /*
-       * This branch supports future UNACK actions directly
-       * from the global Dashboard.
-       */
       if (dashboardGlobalListMode) {
         await fetchDashboardGlobalServiceList(
           currentTableType,
@@ -3591,28 +3661,22 @@ export default function Dashboard() {
           debouncedHostSearch,
           debouncedServiceSearch,
           statusFilter,
-          false,
-          filters.category, // <-- Pass it here
+          true,
+          filters.category,
         );
-
         return;
       }
 
-      if (
-        location.pathname === "/dashboard" &&
-        selectedDashboardDcHost?.id
-      ) {
-        await fetchDashboardDcHostServices({
-          hostId: selectedDashboardDcHost.id,
-          type: currentTableType,
-          page: dashboardDcHostServicesPage,
-          limit: dashboardDcHostServicesLimit,
-          service: dashboardDcHostServicesServiceFilter,
-        });
+      if (dashboardPollerMode) {
+        await fetchDashboardPollerServices(
+          selectedDashboardPollerId,
+          currentTableType,
+          servicePage,
+          serviceLimit,
+          statusFilter,
+        );
         return;
       }
-
-      await refreshDashboardData();
     } catch (error) {
       console.error("Failed to run safe unacknowledgement:", error);
     } finally {
@@ -3701,7 +3765,6 @@ export default function Dashboard() {
             <div
               className={`stat-card all ${currentTableType === "all" ? "active" : ""}`}
               onClick={() => {
-                setDashboardGlobalServices([]);
                 setCurrentTableType("all");
 
                 if (location.pathname === "/dashboard") {
@@ -3721,7 +3784,6 @@ export default function Dashboard() {
             <div
               className={`stat-card critical ${currentTableType === "critical" ? "active" : ""}`}
               onClick={() => {
-                setDashboardGlobalServices([]);
                 setCurrentTableType("critical");
 
                 if (location.pathname === "/dashboard") {
@@ -3739,7 +3801,6 @@ export default function Dashboard() {
             <div
               className={`stat-card warning ${currentTableType === "warning" ? "active" : ""}`}
               onClick={() => {
-                setDashboardGlobalServices([]);
                 setCurrentTableType("warning");
 
                 if (location.pathname === "/dashboard") {
@@ -3757,7 +3818,6 @@ export default function Dashboard() {
             <div
               className={`stat-card unknown ${currentTableType === "unknown" ? "active" : ""}`}
               onClick={() => {
-                setDashboardGlobalServices([]);
                 setCurrentTableType("unknown");
 
                 if (location.pathname === "/dashboard") {
@@ -3866,13 +3926,25 @@ export default function Dashboard() {
                     <label>CATEGORY</label>
                     <select
                       className="filter-select-compact"
-                      value={filters.category}
+                      value={
+                        categoryList.length === 1
+                          ? categoryList[0]
+                          : filters.category
+                      }
                       onChange={(e) => {
                         setFilters((f) => ({ ...f, category: e.target.value }));
                         setServicePage(1);
                       }}
+                      disabled={categoryList.length === 1}
                     >
-                      <option value="">All Categories</option>
+                      {categoryList.length > 1 && (
+                        <option value="">
+                          {categoryList.includes("mssql_db") &&
+                          categoryList.includes("oracle_db")
+                            ? "All DB Categories"
+                            : "All Categories"}
+                        </option>
+                      )}
                       {categoryList.map((cat) => (
                         <option key={cat} value={cat}>
                           {cat}
@@ -3966,7 +4038,8 @@ export default function Dashboard() {
                       {dashboardDcHostServicesLoading ? (
                         <tr>
                           <td colSpan="5" className="loading-cell">
-                            Loading services for {selectedDashboardDcHost.name}...
+                            Loading services for {selectedDashboardDcHost.name}
+                            ...
                           </td>
                         </tr>
                       ) : dashboardDcHostServices.length === 0 ? (
@@ -4118,16 +4191,15 @@ export default function Dashboard() {
               <div className="services-section">
                 <div className="section-header">
                   <div className="section-header-left">
-                    <h2 className="section-title">
-                      Data Center Hosts
-                    </h2>
+                    <h2 className="section-title">Data Center Hosts</h2>
                   </div>
                   <div className="dashboard-pagination-controls-top">
                     <span className="service-count">
                       {dashboardDcHostsLoading
                         ? "Loading..."
                         : `${displayedDcHosts.length} of ${dashboardDcHosts.length} hosts`}
-                      {" | "}With Issues: {dashboardDcHostsCounts.hostsWithIssues || 0}
+                      {" | "}With Issues:{" "}
+                      {dashboardDcHostsCounts.hostsWithIssues || 0}
                       {" | "}Critical: {dashboardDcHostsCounts.critical || 0}
                       {" | "}Warning: {dashboardDcHostsCounts.warning || 0}
                       {" | "}Unknown: {dashboardDcHostsCounts.unknown || 0}
@@ -4181,10 +4253,18 @@ export default function Dashboard() {
                           >
                             <td className="host-name">{h.name || "N/A"}</td>
                             <td>{h.alias || "-"}</td>
-                            <td className="critical-count">{h.counts?.critical || 0}</td>
-                            <td className="warning-count">{h.counts?.warning || 0}</td>
-                            <td className="unknown-count">{h.counts?.unknown || 0}</td>
-                            <td className="total-count">{h.counts?.allActiveIssues || 0}</td>
+                            <td className="critical-count">
+                              {h.counts?.critical || 0}
+                            </td>
+                            <td className="warning-count">
+                              {h.counts?.warning || 0}
+                            </td>
+                            <td className="unknown-count">
+                              {h.counts?.unknown || 0}
+                            </td>
+                            <td className="total-count">
+                              {h.counts?.allActiveIssues || 0}
+                            </td>
                             <td>
                               <span className={`host-status status-${h.state}`}>
                                 {Number(h.state) === 0
@@ -4206,219 +4286,221 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : (
-            <div className="services-section">
-              <div className="section-header">
-                <div className="section-header-left">
-                  <h2 className="section-title">
-                    {isSearchMode ? "Search Results" : "Active Exceptions"}
-                  </h2>
-                </div>
+              <div className="services-section">
+                <div className="section-header">
+                  <div className="section-header-left">
+                    <h2 className="section-title">
+                      {isSearchMode ? "Search Results" : "Active Exceptions"}
+                    </h2>
+                  </div>
 
-                <div className="dashboard-pagination-controls-top">
-                  <span className="service-count">
-                    {dashboardGlobalListMode
-                      ? isLoadingDashboardGlobalList
-                        ? "Loading..."
-                        : `${dashboardTableServices.length} of ${dashboardGlobalMeta.total || 0} Targets`
-                      : isLoadingServices
-                        ? "Loading..."
-                        : `${dashboardTableServices.length} Targets`}
-                    {dashboardGlobalListMode && (
-                      <>
-                        {" "}
-                        | Global cache{" "}
-                        {isRefreshingGlobalSummary ? "refreshing..." : "cached"}
-                      </>
-                    )}
-                  </span>
+                  <div className="dashboard-pagination-controls-top">
+                    <span className="service-count">
+                      {dashboardGlobalListMode || dashboardPollerMode
+                        ? isLoadingDashboardGlobalList &&
+                          dashboardTableServices.length === 0
+                          ? "Loading..."
+                          : `${dashboardTableServices.length} of ${dashboardGlobalMeta.total || 0} Targets`
+                        : isLoadingServices &&
+                            dashboardTableServices.length === 0
+                          ? "Loading..."
+                          : `${dashboardTableServices.length} Targets`}
+                      {dashboardGlobalListMode && (
+                        <>
+                          {" "}
+                          | Global cache{" "}
+                          {isRefreshingGlobalSummary
+                            ? "refreshing..."
+                            : "cached"}
+                        </>
+                      )}
+                    </span>
 
-                  <div className="dashboard-pagination-controls">
-                    <span className="dashboard-pagination-label">Show:</span>
-                    <select
-                      className="dashboard-page-size-select"
-                      value={serviceLimit}
-                      onChange={handlePageSizeChange}
-                      disabled={
-                        isLoadingServices ||
-                        (dashboardGlobalListMode &&
-                          isLoadingDashboardGlobalList)
-                      }
-                    >
-                      <option value="10">10</option>
-                      <option value="20">20</option>
-                      <option value="30">30</option>
-                      <option value="40">40</option>
-                      <option value="50">50</option>
-                      <option value="60">60</option>
-                      <option value="70">70</option>
-                      <option value="80">80</option>
-                      <option value="90">90</option>
-                      <option value="100">100</option>
-                      <option value="999999">All</option>
-                    </select>
-
-                    <div className="dashboard-pagination-buttons">
-                      <button
-                        className="dashboard-page-btn"
-                        onClick={() => goToPage(servicePage - 1)}
+                    <div className="dashboard-pagination-controls">
+                      <span className="dashboard-pagination-label">Show:</span>
+                      <select
+                        className="dashboard-page-size-select"
+                        value={serviceLimit}
+                        onChange={handlePageSizeChange}
                         disabled={
-                          servicePage <= 1 ||
-                          totalPages === 0 ||
                           isLoadingServices ||
                           (dashboardGlobalListMode &&
                             isLoadingDashboardGlobalList)
                         }
                       >
-                        ◀ Prev
-                      </button>
+                        <option value="10">10</option>
+                        <option value="20">20</option>
+                        <option value="30">30</option>
+                        <option value="40">40</option>
+                        <option value="50">50</option>
+                        <option value="60">60</option>
+                        <option value="70">70</option>
+                        <option value="80">80</option>
+                        <option value="90">90</option>
+                        <option value="100">100</option>
+                        <option value="999999">All</option>
+                      </select>
 
-                      <span className="dashboard-page-info">
-                        Page {totalPages === 0 ? 0 : servicePage} of{" "}
-                        {totalPages === 0 ? 0 : totalPages}
-                      </span>
+                      <div className="dashboard-pagination-buttons">
+                        <button
+                          className="dashboard-page-btn"
+                          onClick={() => goToPage(servicePage - 1)}
+                          disabled={
+                            servicePage <= 1 ||
+                            totalPages === 0 ||
+                            isLoadingServices ||
+                            (dashboardGlobalListMode &&
+                              isLoadingDashboardGlobalList)
+                          }
+                        >
+                          ◀ Prev
+                        </button>
 
-                      <button
-                        className="dashboard-page-btn"
-                        onClick={() => goToPage(servicePage + 1)}
-                        disabled={
-                          servicePage >= totalPages ||
-                          totalPages === 0 ||
-                          isLoadingServices ||
-                          (dashboardGlobalListMode &&
-                            isLoadingDashboardGlobalList)
-                        }
-                      >
-                        Next ▶
-                      </button>
+                        <span className="dashboard-page-info">
+                          Page {totalPages === 0 ? 0 : servicePage} of{" "}
+                          {totalPages === 0 ? 0 : totalPages}
+                        </span>
+
+                        <button
+                          className="dashboard-page-btn"
+                          onClick={() => goToPage(servicePage + 1)}
+                          disabled={
+                            servicePage >= totalPages ||
+                            totalPages === 0 ||
+                            isLoadingServices ||
+                            (dashboardGlobalListMode &&
+                              isLoadingDashboardGlobalList)
+                          }
+                        >
+                          Next ▶
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="table-wrapper">
-                <table className="services-table">
-                  <thead>
-                    <tr>
-                      <th>Host</th>
-                      <th>Service</th>
-                      <th>Output Summary</th>
-                      <th>Status</th>
-                      <th>Acknowledge</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {dashboardTableServices.length === 0 ? (
+                <div className="table-wrapper">
+                  <table className="services-table">
+                    <thead>
                       <tr>
-                        <td colSpan="5" className="loading-cell">
-                          {dashboardGlobalListMode
-                            ? isLoadingDashboardGlobalList
-                              ? "Loading services..."
-                              : `No ${statusFilter === "acknowledged" ? "acknowledged" : statusFilter === "all" ? "" : "unhandled "}active issues found matching current criteria.`
-                            : isLoadingServices
-                              ? "Loading services..."
-                              : `No ${statusFilter === "acknowledged" ? "acknowledged" : statusFilter === "all" ? "" : "unhandled "}active issues found matching current criteria.`}
-                        </td>
+                        <th>Host</th>
+                        <th>Service</th>
+                        <th>Output Summary</th>
+                        <th>Status</th>
+                        <th>Acknowledge</th>
                       </tr>
-                    ) : (
-                      dashboardTableServices.map((service, idx) => {
-                        const hostName =
-                          service.host?.name || service.host?.display_name;
-                        const serviceDescription =
-                          service.description || service.display_name;
+                    </thead>
 
-                        const hostAddress =
-                          service.host?.address ||
-                          service.host?.ip ||
-                          service.host?.ip_address ||
-                          service.host?.address_ip ||
-                          extractIpFromText(service.output);
+                    <tbody>
+                      {dashboardTableServices.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="loading-cell">
+                            {/* 👇 ONLY show the empty message if we are NOT currently loading */}
+                            {isLoadingDashboardGlobalList || isLoadingServices
+                              ? "Loading..."
+                              : `No ${statusFilter === "acknowledged" ? "acknowledged" : statusFilter === "all" ? "" : "unhandled "}active issues found matching current criteria.`}
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedDashboardServices.map((service, idx) => {
+                          const hostName =
+                            service.host?.name || service.host?.display_name;
+                          const serviceDescription =
+                            service.description || service.display_name;
 
-                        const ackKey = getAckKey(
-                          hostName,
-                          serviceDescription,
-                          service.host?.id,
-                          service.id,
-                        );
+                          const hostAddress =
+                            service.host?.address ||
+                            service.host?.ip ||
+                            service.host?.ip_address ||
+                            service.host?.address_ip ||
+                            extractIpFromText(service.output);
 
-                        const acknowledged = isServiceAcknowledged(service);
-                        return (
-                          <tr
-                            key={`${service.host?.id || service.host?.name || "host"}-${service.id || service.description || idx}`}
-                            className={
-                              acknowledged
-                                ? "service-row-acknowledged"
-                                : `service-row-${service.statusName?.toLowerCase()}`
-                            }
-                          >
-                            <td className="host-name">{hostName || "N/A"}</td>
+                          const ackKey = getAckKey(
+                            hostName,
+                            serviceDescription,
+                            service.host?.id,
+                            service.id,
+                          );
 
-                            <td className="service-name">
-                              {serviceDescription || "N/A"}
-                            </td>
+                          const acknowledged = isServiceAcknowledged(service);
+                          return (
+                            <tr
+                              key={`${service.host?.id || service.host?.name || "host"}-${service.id || service.description || idx}`}
+                              className={
+                                acknowledged
+                                  ? "service-row-acknowledged"
+                                  : `service-row-${service.statusName?.toLowerCase()}`
+                              }
+                            >
+                              <td className="host-name">{hostName || "N/A"}</td>
 
-                            <td className="service-output">
-                              {service.output || "No output details provided."}
-                            </td>
+                              <td className="service-name">
+                                {serviceDescription || "N/A"}
+                              </td>
 
-                            <td>
-                              <span
-                                className={`status-text ${service.statusName?.toLowerCase()}`}
-                              >
-                                {service.statusName}
-                              </span>
-                            </td>
+                              <td className="service-output">
+                                {service.output ||
+                                  "No output details provided."}
+                              </td>
 
-                            <td className="ack-cell">
-                              {acknowledged ? (
-                                <button
-                                  className="ack-badge ack-success-badge"
-                                  disabled={unackInProgressIds.has(ackKey)}
-                                  onClick={() =>
-                                    handleUnacknowledge(
-                                      hostName,
-                                      serviceDescription,
-                                      service.host?.id,
-                                      service.id,
-                                      hostAddress,
-                                    )
-                                  }
-                                  title="Click to remove acknowledgement"
+                              <td>
+                                <span
+                                  className={`status-text ${service.statusName?.toLowerCase()}`}
                                 >
-                                  {unackInProgressIds.has(ackKey)
-                                    ? "REMOVING..."
-                                    : "ACKNOWLEDGED"}
-                                </button>
-                              ) : (
-                                <button
-                                  className="ack-btn ack-action-btn"
-                                  disabled={ackInProgressIds.has(ackKey)}
-                                  onClick={() => {
-                                    setPendingAck({
-                                      hostName,
-                                      serviceDescription,
-                                      hostId: service.host?.id,
-                                      serviceId: service.id,
-                                      hostAddress,
-                                    });
-                                    setAckComment("");
-                                    setShowAckModal(true);
-                                  }}
-                                >
-                                  {ackInProgressIds.has(ackKey)
-                                    ? "ACKING..."
-                                    : "ACKNOWLEDGE"}
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+                                  {service.statusName}
+                                </span>
+                              </td>
+
+                              <td className="ack-cell">
+                                {acknowledged ? (
+                                  <button
+                                    className="ack-badge ack-success-badge"
+                                    disabled={unackInProgressIds.has(ackKey)}
+                                    onClick={() =>
+                                      handleUnacknowledge(
+                                        hostName,
+                                        serviceDescription,
+                                        service.host?.id,
+                                        service.id,
+                                        hostAddress,
+                                      )
+                                    }
+                                    title="Click to remove acknowledgement"
+                                  >
+                                    {unackInProgressIds.has(ackKey)
+                                      ? "REMOVING..."
+                                      : "ACKNOWLEDGED"}
+                                  </button>
+                                ) : (
+                                  <button
+                                    className="ack-btn ack-action-btn"
+                                    disabled={ackInProgressIds.has(ackKey)}
+                                    onClick={() => {
+                                      setPendingAck({
+                                        hostName,
+                                        serviceDescription,
+                                        hostId: service.host?.id,
+                                        serviceId: service.id,
+                                        hostAddress,
+                                      });
+                                      setAckComment("");
+                                      setShowAckModal(true);
+                                    }}
+                                  >
+                                    {ackInProgressIds.has(ackKey)
+                                      ? "ACKING..."
+                                      : "ACKNOWLEDGE"}
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
             )}
           </div>
         )}
@@ -4431,10 +4513,10 @@ export default function Dashboard() {
             <div
               className="modal-content"
               onClick={(e) => e.stopPropagation()}
-              style={{ 
-                border: "2px solid #f85149", 
+              style={{
+                border: "2px solid #f85149",
                 maxWidth: "700px",
-                position: "relative" // Needed for the X button to position correctly
+                position: "relative", // Needed for the X button to position correctly
               }}
             >
               {/* ❌ The New Close Button */}
@@ -4449,22 +4531,44 @@ export default function Dashboard() {
                   color: "#8b949e",
                   fontSize: "20px",
                   cursor: "pointer",
-                  fontWeight: "bold"
+                  fontWeight: "bold",
                 }}
                 title="Close"
               >
                 ✕
               </button>
 
-              <h3 className="modal-title" style={{ color: "#f85149", display: "flex", alignItems: "center", gap: "10px", paddingRight: "30px" }}>
+              <h3
+                className="modal-title"
+                style={{
+                  color: "#f85149",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  paddingRight: "30px",
+                }}
+              >
                 🚨 CENTREON_BE_POLLERS ALERT
               </h3>
 
-              <p className="modal-subtitle" style={{ borderColor: "#f85149", background: "rgba(248, 81, 73, 0.1)" }}>
-                <strong>Attention:</strong> {pollerAlerts.length} PING service(s) are currently experiencing issues.
+              <p
+                className="modal-subtitle"
+                style={{
+                  borderColor: "#f85149",
+                  background: "rgba(248, 81, 73, 0.1)",
+                }}
+              >
+                <strong>Attention:</strong> {pollerAlerts.length} PING
+                service(s) are currently experiencing issues.
               </p>
 
-              <div style={{ maxHeight: "300px", overflowY: "auto", marginBottom: "20px" }}>
+              <div
+                style={{
+                  maxHeight: "300px",
+                  overflowY: "auto",
+                  marginBottom: "20px",
+                }}
+              >
                 <table className="services-table" style={{ fontSize: "12px" }}>
                   <thead>
                     <tr>
@@ -4476,10 +4580,15 @@ export default function Dashboard() {
                   </thead>
                   <tbody>
                     {pollerAlerts.map((alert, idx) => (
-                      <tr key={idx} className={`service-row-${alert.statusName?.toLowerCase()}`}>
+                      <tr
+                        key={idx}
+                        className={`service-row-${alert.statusName?.toLowerCase()}`}
+                      >
                         <td className="service-name">{alert.description}</td>
                         <td>
-                          <span className={`status-text ${alert.statusName?.toLowerCase()}`}>
+                          <span
+                            className={`status-text ${alert.statusName?.toLowerCase()}`}
+                          >
                             {alert.statusName}
                           </span>
                         </td>
@@ -4489,13 +4598,17 @@ export default function Dashboard() {
                             className="ack-btn ack-action-btn"
                             onClick={() => {
                               setPendingAck({
-                                hostName: alert.host?.name || "CENTREON_BE_POLLERS",
+                                hostName:
+                                  alert.host?.name || "CENTREON_BE_POLLERS",
                                 serviceDescription: alert.description,
                                 hostId: alert.host?.id,
                                 serviceId: alert.id,
                                 // Extract IP from output if address is missing
-                                hostAddress: alert.host?.address || alert.host?.ip || extractIpFromText(alert.output),
-                                isPollerAlert: true, 
+                                hostAddress:
+                                  alert.host?.address ||
+                                  alert.host?.ip ||
+                                  extractIpFromText(alert.output),
+                                isPollerAlert: true,
                               });
                               setAckComment("");
                               setAckNotify(false);
@@ -5005,7 +5118,9 @@ export default function Dashboard() {
               setHostServicesMeta={setDataCenterHostServicesMeta}
               hostServicesCounts={dataCenterHostServicesCounts}
               hostServicesServiceFilter={dataCenterHostServicesServiceFilter}
-              setHostServicesServiceFilter={setDataCenterHostServicesServiceFilter}
+              setHostServicesServiceFilter={
+                setDataCenterHostServicesServiceFilter
+              }
               hostServicesPage={dataCenterHostServicesPage}
               setHostServicesPage={setDataCenterHostServicesPage}
               hostServicesLimit={dataCenterHostServicesLimit}
@@ -5060,7 +5175,6 @@ export default function Dashboard() {
                 />
               </div>
 
-
               <div className="modal-actions">
                 <button
                   className="modal-btn modal-btn-cancel"
@@ -5077,8 +5191,11 @@ export default function Dashboard() {
                   className="modal-btn modal-btn-confirm"
                   onClick={async () => {
                     if (pendingAck) {
-                      const username = localStorage.getItem("centreon_username") || "Dashboard User";
-                      const comment = ackComment.trim() || `Acknowledged by ${username}`;
+                      const username =
+                        localStorage.getItem("centreon_username") ||
+                        "Dashboard User";
+                      const comment =
+                        ackComment.trim() || `Acknowledged by ${username}`;
 
                       await handleAcknowledge(
                         pendingAck.hostName,

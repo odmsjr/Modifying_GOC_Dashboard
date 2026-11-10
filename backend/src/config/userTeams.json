@@ -1,5 +1,5 @@
 {
-  "db_team_user": "db_team",
-  "your_db_username": "db_team",
-  "another_db_user": "db_team"
+  "databasedummy": "all_db",
+  "test_oracle_user": "oracle_db",
+  "test_mssql_user": "mssql_db"
 }

@@ -2,6 +2,129 @@
 const centreonAxios = require("../config/axiosCentreon");
 const db = require("../config/db");
 const categoryFilters = require("../config/categoryFilters.json");
+const axios = require("axios");
+
+const contactGroupMapping = require("../config/contactGroupMapping.json");
+
+// 🛑 CACHE FOR USER CONTACT GROUPS (Prevents hammering the v1 API)
+const userGroupCache = new Map();
+
+// 🛑 CACHE FOR CONTACT GROUPS
+const contactGroupCache = new Map();
+
+const fetchUserContactGroups = async (req) => {
+    const username = String(req.headers["x-user-name"] || "").trim().toLowerCase();
+    if (!username || username === "dashboard user") return [];
+
+    try {
+        const systemToken = process.env.CENTREON_API_TOKEN;
+        if (!systemToken) {
+            console.error("❌ Missing CENTREON_API_TOKEN in .env");
+            return [];
+        }
+
+        const url = `https://cevamonitoring.logistics.corp/centreon/api/index.php?action=action&object=centreon_clapi`;
+
+        // 🛑 ONLY include the groups that actually exist in Centreon!
+        const groupsToCheck = [
+            "02.06_DATABASE_TEAM", 
+            "DATABASE_TEAM_LEVEL2", 
+            "DATABASE_TEAM_LEVEL3",
+            "ORACLE",
+            "MSSQL",
+            "MYSQL",
+            "POSTGRES"
+        ];
+
+        for (const groupName of groupsToCheck) {
+            if (contactGroupCache.has(groupName)) {
+                const cached = contactGroupCache.get(groupName);
+                if (Date.now() - cached.timestamp < 5 * 60 * 1000) {
+                    const isMatch = cached.members.some(m => m.includes(username) || username.includes(m));
+                    if (isMatch) {
+                        return [groupName];
+                    }
+                    continue;
+                }
+            }
+
+            try {
+                const response = await axios.post(url, {
+                    action: "getcontact", 
+                    object: "CG",
+                    values: groupName
+                }, {
+                    headers: { 
+                        "centreon-auth-token": systemToken,
+                        "Content-Type": "application/json"
+                    }
+                });
+
+                let members = [];
+                let rawResult = response.data?.result;
+
+                if (rawResult) {
+                    if (Array.isArray(rawResult)) {
+                        // Extract the name from the object: {"id":"672", "name":"dashboard"}
+                        members = rawResult.map(m => {
+                            if (typeof m === 'object' && m !== null) {
+                                return String(m.name || m.alias || m.text || m).trim().toLowerCase();
+                            }
+                            return String(m).trim().toLowerCase();
+                        });
+                    } else if (typeof rawResult === 'string') {
+                        members = rawResult.split(/[\n,]/).map(m => m.trim().toLowerCase());
+                    } else if (typeof rawResult === 'object') {
+                        const contacts = rawResult.contacts || rawResult.members || rawResult.users;
+                        if (Array.isArray(contacts)) {
+                            members = contacts.map(c => String(c.alias || c.name || c).trim().toLowerCase());
+                        } else if (typeof contacts === 'string') {
+                            members = contacts.split(",").map(m => m.trim().toLowerCase());
+                        }
+                    }
+                }
+
+                members = [...new Set(members.filter(Boolean))];
+
+                contactGroupCache.set(groupName, { members, timestamp: Date.now() });
+
+                const isMatch = members.some(m => m.includes(username) || username.includes(m));
+
+                if (isMatch) {
+                    console.log(`✅ User "${username}" found in CLAPI group: ${groupName} (Matched member)`);
+                    return [groupName];
+                }
+            } catch (err) {
+                if (err.response?.status === 404 || String(err.response?.data).includes("Object not found")) {
+                    continue; 
+                }
+                console.error(`Error fetching ${groupName}:`, err.message);
+            }
+        }
+
+        console.log(`⚠️ User "${username}" was not found in any of the DB CLAPI groups.`);
+        return [];
+    } catch (error) {
+        console.error("Failed to fetch CLAPI contact groups:", error.message);
+        return [];
+    }
+};
+
+
+const getUserTeamCategory = async (req) => {
+    const groups = await fetchUserContactGroups(req);
+    if (!groups || groups.length === 0) return null;
+
+    for (const groupName of groups) {
+        for (const [pattern, category] of Object.entries(contactGroupMapping)) {
+            const regex = new RegExp(pattern, "i");
+            if (regex.test(groupName)) {
+                return category;
+            }
+        }
+    }
+    return null;
+};
 
 
 // ============================================================
@@ -142,6 +265,10 @@ const DASHBOARD_RESOURCE_STATUSES = [
     "WARNING",
     "UNKNOWN"
 ];
+
+// 🛑 DB TEAM RESTRICTION CONSTANTS
+const DB_CATEGORIES = ["mssql_db", "mysql_db", "oracle_db", "postgres_db"];
+const DB_MASTER_REGEX = DB_CATEGORIES.map(cat => categoryFilters[cat]).join("|");
 
 // ============================================================
 // HELPERS
@@ -1144,11 +1271,14 @@ const getMonitoringServerMap = async (req) => {
         return serverMap;
 
     } catch (error) {
-        console.warn("Unable to fetch Centreon monitoring servers. Falling back to Poller ID names.", {
-            status: error.response?.status,
-            data: error.response?.data,
-            message: error.message
-        });
+        // Silently ignore 403 Forbidden for non-admin users
+        if (error.response?.status !== 403) {
+            console.warn("Unable to fetch Centreon monitoring servers. Falling back to Poller ID names.", {
+                status: error.response?.status,
+                data: error.response?.data,
+                message: error.message
+            });
+        }
 
         return {};
     }
@@ -2397,6 +2527,12 @@ const getGlobalServiceStatusSummary = async (req, res, next) => {
         const statusFilter = normalizeStatusFilter(
             req.query.statusFilter || "unhandled"
         );
+        
+        // 👇 ADD THESE TWO LINES to parse the category from the URL
+        const categoryFilterRaw = String(req.query.category || "").trim();
+        const matchedCategoryKey = Object.keys(categoryFilters).find(
+            (k) => k.toLowerCase() === categoryFilterRaw.toLowerCase()
+        );
 
         const now = Date.now();
         let cacheToUse;
@@ -2456,16 +2592,45 @@ const getGlobalServiceStatusSummary = async (req, res, next) => {
             ...(cacheToUse.services.unknown || [])
         ];
 
-        // For "acknowledged" and "all", we need to filter manually
+        // 🛑 DB TEAM RESTRICTION
+        const userTeam = await getUserTeamCategory(req);
+
         let filteredServices;
-        if (statusFilter === "acknowledged") {
-            filteredServices = allServices.filter(isAcknowledgedActiveService);
-        } else if (statusFilter === "all") {
-            filteredServices = allServices.filter(isActiveIssueService);
+        
+        // If user has a specific DB team
+        if (userTeam && DB_CATEGORIES.includes(userTeam)) {
+            const regexPattern = new RegExp(categoryFilters[userTeam], "i");
+            const teamServices = allServices.filter(service => {
+                const desc = String(service.description || service.display_name || "");
+                return regexPattern.test(desc);
+            });
+
+            if (statusFilter === "acknowledged") filteredServices = teamServices.filter(isAcknowledgedActiveService);
+            else if (statusFilter === "all") filteredServices = teamServices.filter(isActiveIssueService);
+            else filteredServices = teamServices.filter(isUnhandledActiveService);
+
+        } else if (userTeam === "all_db") {
+            let dbServices;
+            // If they selected a specific category, filter by it
+            if (matchedCategoryKey && categoryFilters[matchedCategoryKey]) {
+                const regexPattern = new RegExp(categoryFilters[matchedCategoryKey], "i");
+                dbServices = allServices.filter(s => regexPattern.test(String(s.description || "")));
+            } else {
+                // Otherwise show all DB categories
+                const dbRegex = new RegExp(DB_MASTER_REGEX, "i");
+                dbServices = allServices.filter(s => dbRegex.test(String(s.description || "")));
+            }
+            
+            if (statusFilter === "acknowledged") filteredServices = dbServices.filter(isAcknowledgedActiveService);
+            else if (statusFilter === "all") filteredServices = dbServices.filter(isActiveIssueService);
+            else filteredServices = dbServices.filter(isUnhandledActiveService);
         } else {
-            // unhandled – cache already contains unhandled, but we can still filter to be safe
-            filteredServices = allServices.filter(isUnhandledActiveService);
+            // Normal fallback
+            if (statusFilter === "acknowledged") filteredServices = allServices.filter(isAcknowledgedActiveService);
+            else if (statusFilter === "all") filteredServices = allServices.filter(isActiveIssueService);
+            else filteredServices = allServices.filter(isUnhandledActiveService);
         }
+        // 🛑 END DB TEAM RESTRICTION
 
         const counts = buildStatusCounts(filteredServices);
 
@@ -2624,17 +2789,46 @@ const getGlobalServiceStatusSummaryList = async (req, res, next) => {
             handlingFilteredServices = allServices.filter(isUnhandledActiveService);
         }
 
-        const counts = buildStatusCounts(handlingFilteredServices);
         let searchedServices = handlingFilteredServices;
 
-        // Apply Category Filter (Regex) using existing variables
-        if (matchedCategoryKey && categoryFilters[matchedCategoryKey]) {
+        // 🛑 DB TEAM RESTRICTION
+        const userTeam = await getUserTeamCategory(req);
+
+        if (userTeam && DB_CATEGORIES.includes(userTeam)) {
+            // Force the regex to be THEIR specific team category, ignoring frontend dropdown
+            const regexPattern = new RegExp(categoryFilters[userTeam], "i");
+            searchedServices = searchedServices.filter((service) => {
+                const desc = String(service.description || service.display_name || "");
+                return regexPattern.test(desc);
+            });
+        } else if (userTeam === "all_db") {
+            // Manager view: Check if they selected a specific category from the dropdown
+            if (matchedCategoryKey && categoryFilters[matchedCategoryKey]) {
+                const regexPattern = new RegExp(categoryFilters[matchedCategoryKey], "i");
+                searchedServices = searchedServices.filter((service) => {
+                    const desc = String(service.description || service.display_name || "");
+                    return regexPattern.test(desc);
+                });
+            } else {
+                // If no category selected, show ALL DB categories
+                const dbRegex = new RegExp(DB_MASTER_REGEX, "i");
+                searchedServices = searchedServices.filter((service) => {
+                    const desc = String(service.description || service.display_name || "");
+                    return dbRegex.test(desc);
+                });
+            }
+        } else if (matchedCategoryKey && categoryFilters[matchedCategoryKey]) {
+            // Normal logic
             const regexPattern = new RegExp(categoryFilters[matchedCategoryKey], "i");
             searchedServices = searchedServices.filter((service) => {
                 const desc = String(service.description || service.display_name || "");
                 return regexPattern.test(desc);
             });
         }
+        // 🛑 END DB TEAM RESTRICTION
+
+        // 👇 RE-CALCULATE COUNTS AFTER THE DB FILTER
+        const counts = buildStatusCounts(searchedServices);
 
         // Apply Text Search Filters
         if (hostSearch || serviceSearch || qSearch) {
@@ -4278,9 +4472,6 @@ const unacknowledgeService = async (req, res, next) => {
             hostName: targetHost,
             serviceDescription: targetService
         });
-        // The production cache is unhandled-only. Re-query Centreon after
-        // UNACK instead of inventing a local resource record.
-        caches.dashboardGlobalSummaryCache.updatedAt = null;
         refreshDashboardGlobalSummaryCache(req);
 
         let auditLogged = false;
@@ -4429,13 +4620,13 @@ const testMonitoringServers = async (req, res, next) => {
 // ============================================================
 const getServiceCategories = async (req, res, next) => {
     try {
-        // Use the category keys from categoryFilters.json
-        const categories = Object.keys(categoryFilters || {}).sort();
+        const userTeam = await getUserTeamCategory(req);
 
-        return res.json({
-            success: true,
-            data: { result: categories }
-        });
+        if (userTeam && DB_CATEGORIES.includes(userTeam)) {
+            return res.json({ success: true, data: { result: [userTeam] } });
+        }
+
+        return res.json({ success: true, data: { result: DB_CATEGORIES } });
     } catch (error) {
         return handleCentreonError(error, res, next);
     }

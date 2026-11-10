@@ -1,0 +1,7 @@
+{
+  "DATABASE_TEAM|DBA_TEAM": "all_db",
+  "ORACLE": "oracle_db",
+  "MSSQL|MS SQL": "mssql_db",
+  "MYSQL": "mysql_db",
+  "POSTGRES|PGSQL": "postgres_db"
+}
